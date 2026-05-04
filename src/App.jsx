@@ -142,6 +142,33 @@ export default function App() {
 }
 
 function SPFTool() {
+  // --- Monetization: simple client-side gate (Step 1) ---
+  const [isPro, setIsPro] = useState(() => localStorage.getItem("pro_unlocked") === "true");
+  function unlockPro() {
+    localStorage.setItem("pro_unlocked", "true");
+    setIsPro(true);
+  }
+
+  function exportReport() {
+    const payload = {
+      domain,
+      generatedSPF: record,
+      includes,
+      ip4,
+      policy,
+      lookupCount,
+      warnings,
+      timestamp: new Date().toISOString(),
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${domain || "spf"}-audit.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   const [domain, setDomain] = useState("example.com");
   const [existingRecords, setExistingRecords] = useState([]);
   const [lookupStatus, setLookupStatus] = useState("idle");
@@ -347,6 +374,13 @@ function SPFTool() {
         </Card>
 
         <Card title="Generated TXT Record" description="Publish this value as a TXT record at the root of your domain.">
+          <div style={{ display: "flex", gap: 10, marginBottom: 10 }}>
+            {isPro ? (
+              <button style={styles.primaryButton} onClick={exportReport}>⬇ Export Audit Report</button>
+            ) : (
+              <button style={{ ...styles.primaryButton, background: "#9333ea" }} onClick={unlockPro}>🔒 Unlock Export ($5)</button>
+            )}
+          </div>
           <div style={styles.dnsBox}>
             <div><strong>Type:</strong> TXT</div>
             <div><strong>Host:</strong> @</div>
