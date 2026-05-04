@@ -108,6 +108,7 @@ export default function App() {
       <nav style={styles.tabs}>
         {[
           ["mx", "📬", "MX Records"],
+          ["audit", "📑", "Audit Report"],
           ["health", "🌐", "DNS Health"],
           ["spf", "🛡", "SPF Lookup"],
           ["dmarc", "📊", "DMARC Builder"],
@@ -127,6 +128,7 @@ export default function App() {
       </nav>
 
       {activeTool === "mx" && <MXTool />}
+      {activeTool === "audit" && <AuditReportTool />}
       {activeTool === "health" && <DNSHealthTool />}
       {activeTool === "spf" && <SPFTool />}
       {activeTool === "dmarc" && <DMARCTool />}
@@ -138,6 +140,178 @@ export default function App() {
       {activeTool === "propagation" && <DNSPropagationTool />}
       {activeTool === "analyzer" && <MessageAnalyzerTool />}
     </div>
+  );
+}
+
+function AuditReportTool() {
+  const [domain, setDomain] = useState("example.com");
+  const [loading, setLoading] = useState(false);
+  const [report, setReport] = useState(null);
+  const [copied, setCopied] = useState(false);
+  const [isPro, setIsPro] = useState(() => localStorage.getItem("audit_report_unlocked") === "true");
+
+  function unlockAudit() {
+    localStorage.setItem("audit_report_unlocked", "true");
+    setIsPro(true);
+  }
+
+  async function generateAudit() {
+    const cleanDomain = domain.trim();
+    if (!cleanDomain) return;
+    setLoading(true);
+    setReport(null);
+
+    try {
+      const [mx, txt, a, aaaa, ns, dmarc] = await Promise.all([
+        dnsLookup(cleanDomain, "MX"),
+        dnsLookup(cleanDomain, "TXT"),
+        dnsLookup(cleanDomain, "A"),
+        dnsLookup(cleanDomain, "AAAA"),
+        dnsLookup(cleanDomain, "NS"),
+        dnsLookup(`_dmarc.${cleanDomain}`, "TXT"),
+      ]);
+
+      const spfRecords = txt.map(r => cleanTxtRecord(r.data)).filter(value => value.toLowerCase().startsWith("v=spf1"));
+      const dmarcRecords = dmarc.map(r => cleanTxtRecord(r.data)).filter(value => value.toLowerCase().startsWith("v=dmarc1"));
+      const spfParsed = spfRecords[0] ? parseSPF(spfRecords[0]) : null;
+      const dmarcParsed = dmarcRecords[0] ? parseDMARC(dmarcRecords[0]) : {};
+      let spfExpanded = null;
+      if (spfRecords.length === 1) spfExpanded = await expandSPFDomain(cleanDomain);
+
+      const findings = [];
+      const recommendations = [];
+      let score = 100;
+
+      if (!mx.length) { score -= 25; findings.push({ severity: "critical", title: "No MX records found", detail: "The domain may not be able to receive email." }); recommendations.push("Publish at least one valid MX record for your mail platform."); }
+      if (mx.length === 1) { score -= 5; findings.push({ severity: "medium", title: "Single MX record", detail: "Only one MX record was found. Redundancy may be limited." }); recommendations.push("Use redundant MX hosts when supported by your email provider."); }
+      if (!spfRecords.length) { score -= 25; findings.push({ severity: "critical", title: "No SPF record found", detail: "SPF is required to authorize sending systems." }); recommendations.push("Publish an SPF TXT record that includes your legitimate senders."); }
+      if (spfRecords.length > 1) { score -= 25; findings.push({ severity: "critical", title: "Multiple SPF records found", detail: "Multiple SPF records can cause SPF PermError." }); recommendations.push("Merge all SPF mechanisms into one TXT record only."); }
+      if (spfParsed?.policy === "+all") { score -= 25; findings.push({ severity: "critical", title: "Unsafe SPF policy +all", detail: "+all allows any server to send for this domain." }); recommendations.push("Replace +all with ~all during testing or -all for stricter enforcement."); }
+      if (spfExpanded?.lookupCount > 10) { score -= 20; findings.push({ severity: "critical", title: "SPF exceeds DNS lookup limit", detail: `Expanded SPF lookup count is ${spfExpanded.lookupCount}/10.` }); recommendations.push("Reduce nested SPF includes or flatten SPF carefully."); }
+      if (!dmarcRecords.length) { score -= 25; findings.push({ severity: "critical", title: "No DMARC record found", detail: "DMARC helps protect against spoofing and phishing." }); recommendations.push("Publish a DMARC record at _dmarc with p=none to start monitoring."); }
+      if (dmarcParsed.p === "none") { score -= 10; findings.push({ severity: "medium", title: "DMARC monitoring only", detail: "p=none does not quarantine or reject spoofed mail." }); recommendations.push("Move DMARC from p=none to quarantine/reject after validating senders."); }
+      if (dmarcRecords.length && !String(dmarcParsed.rua || "").includes("mailto:")) { score -= 5; findings.push({ severity: "low", title: "DMARC aggregate reports missing", detail: "No rua reporting address was found." }); recommendations.push("Add a rua=mailto: address to receive DMARC aggregate reports."); }
+      if (!ns.length) { score -= 10; findings.push({ severity: "medium", title: "No NS records returned", detail: "Name server lookup did not return records from the resolver." }); }
+
+      score = Math.max(0, Math.min(100, score));
+      const status = score >= 85 ? "Healthy" : score >= 65 ? "Needs Review" : "High Risk";
+
+      setReport({
+        domain: cleanDomain,
+        score,
+        status,
+        generatedAt: new Date().toISOString(),
+        records: { mx, a, aaaa, ns, spfRecords, dmarcRecords },
+        parsed: { spf: spfParsed, dmarc: dmarcParsed },
+        spfExpanded,
+        findings,
+        recommendations: uniqueClean(recommendations),
+      });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function exportAudit() {
+    if (!report || !isPro) return;
+    const blob = new Blob([JSON.stringify(report, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${report.domain}-email-dns-audit.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function copyExecutiveSummary() {
+    if (!report) return;
+    const summary = [
+      `Email DNS Audit Report`,
+      `Domain: ${report.domain}`,
+      `Score: ${report.score}/100`,
+      `Status: ${report.status}`,
+      `Findings: ${report.findings.map(f => f.title).join("; ") || "None"}`,
+      `Recommendations: ${report.recommendations.join("; ") || "None"}`,
+    ].join(String.fromCharCode(10));
+    await navigator.clipboard.writeText(summary);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1400);
+  }
+
+  return (
+    <main style={styles.grid}>
+      <section style={styles.leftColumn}>
+        <Card title="Premium Email DNS Audit" description="Generate an everything report across MX, SPF, DMARC, NS, A/AAAA, SPF expansion, risk findings, and recommended fixes.">
+          <div style={styles.searchRow}>
+            <input style={styles.searchInput} value={domain} onChange={e => setDomain(e.target.value)} placeholder="contoso.com" />
+            <button style={styles.primaryButton} onClick={generateAudit}>{loading ? "Generating..." : "Generate Report"}</button>
+          </div>
+          <div style={styles.notice}>Free preview shows score and top findings. Full export is unlocked as a premium report.</div>
+        </Card>
+
+        {report && (
+          <Card title="Executive Summary" description="Decision-ready overview for admins, managers, or security tickets.">
+            <div style={styles.auditHero}>
+              <div style={{ ...styles.scoreCircle, margin: 0 }}>{report.score}</div>
+              <div>
+                <h2 style={{ margin: "0 0 8px", color: "var(--text)" }}>{report.status}</h2>
+                <div style={{ color: "var(--muted)" }}>Generated {new Date(report.generatedAt).toLocaleString()}</div>
+                <div style={{ color: "var(--muted)", marginTop: 4 }}>Domain: <strong>{report.domain}</strong></div>
+              </div>
+            </div>
+            <div style={styles.metrics}>
+              <Metric label="MX" value={report.records.mx.length} danger={!report.records.mx.length} />
+              <Metric label="SPF" value={report.records.spfRecords.length} danger={report.records.spfRecords.length !== 1} />
+              <Metric label="DMARC" value={report.records.dmarcRecords.length} danger={!report.records.dmarcRecords.length} />
+            </div>
+            <button style={{ ...styles.secondaryButton, padding: "12px 16px" }} onClick={copyExecutiveSummary}>{copied ? "Copied!" : "Copy Executive Summary"}</button>
+          </Card>
+        )}
+
+        {report && (
+          <Card title="Findings Preview" description="The full premium report includes all raw records, parsed data, SPF expansion, and fix recommendations.">
+            {report.findings.slice(0, isPro ? report.findings.length : 3).map(finding => (
+              <div key={finding.title} style={finding.severity === "critical" ? styles.warning : finding.severity === "medium" ? styles.notice : styles.good}>
+                <strong>{finding.title}</strong><br />{finding.detail}
+              </div>
+            ))}
+            {!report.findings.length && <div style={styles.good}>✓ No major issues found in the audit.</div>}
+            {!isPro && report.findings.length > 3 && <div style={styles.paywallBlur}>+ {report.findings.length - 3} additional findings included in the full report.</div>}
+          </Card>
+        )}
+      </section>
+
+      <aside style={styles.rightColumn}>
+        <Card title="Unlock Full Report" description="Monetized report export for consultants, MSPs, and email administrators.">
+          <div style={styles.priceBox}>
+            <div style={{ fontSize: 34, fontWeight: 900 }}>$5</div>
+            <div style={{ color: "var(--muted)" }}>one-time report export</div>
+          </div>
+          {isPro ? (
+            <button style={styles.copyButton} onClick={exportAudit} disabled={!report}>⬇ Export Full Audit JSON</button>
+          ) : (
+            <button style={{ ...styles.copyButton, background: "linear-gradient(135deg,#9333ea,#7e22ce)" }} onClick={unlockAudit}>🔒 Unlock Full Report</button>
+          )}
+          <div style={styles.notice}>Current unlock is a client-side demo gate. Next step is replacing it with Stripe Checkout.</div>
+        </Card>
+
+        {report && (
+          <Card title="Recommendations" description="Copy-paste remediation guidance included in the paid report.">
+            {(isPro ? report.recommendations : report.recommendations.slice(0, 2)).map(item => <div key={item} style={styles.good}>✓ {item}</div>)}
+            {!isPro && report.recommendations.length > 2 && <div style={styles.paywallBlur}>Unlock to view all remediation steps.</div>}
+          </Card>
+        )}
+
+        {report && isPro && (
+          <Card title="Full Technical Data" description="Raw records and expanded SPF data included after unlock.">
+            <div style={styles.smallCode}>SPF: {report.records.spfRecords.join(" | ") || "None"}</div>
+            <div style={styles.smallCode}>DMARC: {report.records.dmarcRecords.join(" | ") || "None"}</div>
+            <div style={styles.smallCode}>SPF Lookups: {report.spfExpanded?.lookupCount ?? "N/A"}/10</div>
+            <pre style={styles.largeCode}>{report.spfExpanded?.flattened || "No flattened SPF data available."}</pre>
+          </Card>
+        )}
+      </aside>
+    </main>
   );
 }
 
@@ -1546,6 +1720,9 @@ const styles = {
   riskReview: { background: "#fef3c7", color: "#92400e" },
   riskHigh: { background: "#fee2e2", color: "#991b1b" },
   scoreCircle: { width: 120, height: 120, borderRadius: "50%", background: "linear-gradient(135deg,#2563eb,#1d4ed8)", color: "white", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 42, fontWeight: 900, margin: "0 auto 18px" },
+  auditHero: { display: "flex", gap: 18, alignItems: "center", marginBottom: 18, padding: 16, background: "var(--soft-bg)", border: "1px solid var(--card-border)", borderRadius: 16 },
+  priceBox: { background: "var(--soft-bg)", border: "1px solid var(--card-border)", borderRadius: 16, padding: 18, marginBottom: 14, textAlign: "center" },
+  paywallBlur: { marginTop: 10, padding: 14, borderRadius: 14, border: "1px dashed #9333ea", color: "#9333ea", background: "rgba(147,51,234,.08)", fontWeight: 800 },
   tableWrap: { overflowX: "auto", border: "1px solid var(--card-border)", borderRadius: 14 },
   table: { width: "100%", borderCollapse: "collapse", fontSize: 14, color: "var(--text)" },
   th: { textAlign: "left", background: "var(--soft-bg)", color: "var(--text)", padding: 12, borderBottom: "1px solid var(--card-border)" },
