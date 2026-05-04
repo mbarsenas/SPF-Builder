@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 
 const PROVIDERS = [
   { name: "Microsoft 365", include: "spf.protection.outlook.com", category: "Productivity" },
@@ -150,9 +150,28 @@ function AuditReportTool() {
   const [copied, setCopied] = useState(false);
   const [isPro, setIsPro] = useState(() => localStorage.getItem("audit_report_unlocked") === "true");
 
-  function unlockAudit() {
-    localStorage.setItem("audit_report_unlocked", "true");
-    setIsPro(true);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("audit_paid") === "true") {
+      localStorage.setItem("audit_report_unlocked", "true");
+      setIsPro(true);
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+  }, []);
+
+  async function handleCheckout() {
+    try {
+      const response = await fetch("/api/create-checkout-session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Checkout failed");
+      if (data.url) window.location.href = data.url;
+    } catch (error) {
+      alert(`Stripe checkout failed: ${error.message}`);
+    }
   }
 
   async function generateAudit() {
@@ -290,7 +309,7 @@ function AuditReportTool() {
           {isPro ? (
             <button style={styles.copyButton} onClick={exportAudit} disabled={!report}>⬇ Export Full Audit JSON</button>
           ) : (
-            <button style={{ ...styles.copyButton, background: "linear-gradient(135deg,#9333ea,#7e22ce)" }} onClick={unlockAudit}>🔒 Unlock Full Report</button>
+            <button style={{ ...styles.copyButton, background: "linear-gradient(135deg,#9333ea,#7e22ce)" }} onClick={handleCheckout}>💳 Unlock Full Report ($5)</button>
           )}
           <div style={styles.notice}>Current unlock is a client-side demo gate. Next step is replacing it with Stripe Checkout.</div>
         </Card>
