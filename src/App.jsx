@@ -84,7 +84,7 @@ function parseDMARC(record) {
 }
 
 export default function App() {
-  const [activeTool, setActiveTool] = useState("spf");
+  const [activeTool, setActiveTool] = useState("mx");
 
   return (
     <div style={styles.page}>
@@ -94,21 +94,33 @@ export default function App() {
           <h1 style={styles.title}>Email DNS Toolkit</h1>
           <p style={styles.subtitle}>Build, inspect, analyze, and publish SPF, DMARC, DKIM, MX, and email header authentication data from one clean admin console.</p>
         </div>
-        <div style={styles.headerBadge}>SPF · DMARC · DKIM · MX · Analyze</div>
+        <div style={styles.headerBadge}>MX · SPF · DMARC · DKIM · Analyze · Health</div>
       </header>
 
       <nav style={styles.tabs}>
+        <button style={{ ...styles.tab, ...(activeTool === "mx" ? styles.tabActive : {}) }} onClick={() => setActiveTool("mx")}>MX Records</button>
+        <button style={{ ...styles.tab, ...(activeTool === "health" ? styles.tabActive : {}) }} onClick={() => setActiveTool("health")}>DNS Health</button>
         <button style={{ ...styles.tab, ...(activeTool === "spf" ? styles.tabActive : {}) }} onClick={() => setActiveTool("spf")}>SPF Lookup + Merge</button>
         <button style={{ ...styles.tab, ...(activeTool === "dmarc" ? styles.tabActive : {}) }} onClick={() => setActiveTool("dmarc")}>DMARC Builder</button>
         <button style={{ ...styles.tab, ...(activeTool === "dkim" ? styles.tabActive : {}) }} onClick={() => setActiveTool("dkim")}>DKIM Helper</button>
-        <button style={{ ...styles.tab, ...(activeTool === "mx" ? styles.tabActive : {}) }} onClick={() => setActiveTool("mx")}>MX Records</button>
+        <button style={{ ...styles.tab, ...(activeTool === "blacklist" ? styles.tabActive : {}) }} onClick={() => setActiveTool("blacklist")}>Blacklist</button>
+        <button style={{ ...styles.tab, ...(activeTool === "score" ? styles.tabActive : {}) }} onClick={() => setActiveTool("score")}>Domain Score</button>
+        <button style={{ ...styles.tab, ...(activeTool === "reports" ? styles.tabActive : {}) }} onClick={() => setActiveTool("reports")}>DMARC Reports</button>
+        <button style={{ ...styles.tab, ...(activeTool === "smtp" ? styles.tabActive : {}) }} onClick={() => setActiveTool("smtp")}>SMTP/TLS</button>
+        <button style={{ ...styles.tab, ...(activeTool === "propagation" ? styles.tabActive : {}) }} onClick={() => setActiveTool("propagation")}>Propagation</button>
         <button style={{ ...styles.tab, ...(activeTool === "analyzer" ? styles.tabActive : {}) }} onClick={() => setActiveTool("analyzer")}>Message Analyzer</button>
       </nav>
 
+      {activeTool === "mx" && <MXTool />}
+      {activeTool === "health" && <DNSHealthTool />}
       {activeTool === "spf" && <SPFTool />}
       {activeTool === "dmarc" && <DMARCTool />}
       {activeTool === "dkim" && <DKIMTool />}
-      {activeTool === "mx" && <MXTool />}
+      {activeTool === "blacklist" && <BlacklistTool />}
+      {activeTool === "score" && <DomainScoreTool />}
+      {activeTool === "reports" && <DMARCReportAnalyzer />}
+      {activeTool === "smtp" && <SMTPTLSTool />}
+      {activeTool === "propagation" && <DNSPropagationTool />}
       {activeTool === "analyzer" && <MessageAnalyzerTool />}
     </div>
   );
@@ -819,6 +831,301 @@ function MXTool() {
   );
 }
 
+function DNSHealthTool() {
+  const [domain, setDomain] = useState("example.com");
+  const [loading, setLoading] = useState(false);
+  const [results, setResults] = useState(null);
+
+  async function runHealthCheck() {
+    const cleanDomain = domain.trim();
+    if (!cleanDomain) return;
+    setLoading(true);
+    try {
+      const [mx, txt, a, aaaa, ns, dmarc] = await Promise.all([
+        dnsLookup(cleanDomain, "MX"),
+        dnsLookup(cleanDomain, "TXT"),
+        dnsLookup(cleanDomain, "A"),
+        dnsLookup(cleanDomain, "AAAA"),
+        dnsLookup(cleanDomain, "NS"),
+        dnsLookup(`_dmarc.${cleanDomain}`, "TXT"),
+      ]);
+      const spfRecords = txt.filter(record => cleanTxtRecord(record.data).toLowerCase().startsWith("v=spf1"));
+      const dmarcRecords = dmarc.filter(record => cleanTxtRecord(record.data).toLowerCase().startsWith("v=dmarc1"));
+      const warnings = [];
+      if (!mx.length) warnings.push("No MX records found.");
+      if (!spfRecords.length) warnings.push("No SPF record found.");
+      if (spfRecords.length > 1) warnings.push("Multiple SPF records found.");
+      if (!dmarcRecords.length) warnings.push("No DMARC record found.");
+      if (dmarcRecords[0] && cleanTxtRecord(dmarcRecords[0].data).toLowerCase().includes("p=none")) warnings.push("DMARC is in monitoring mode only.");
+      if (!ns.length) warnings.push("No NS records returned from lookup.");
+      setResults({ mx, txt, a, aaaa, ns, spfRecords, dmarcRecords, warnings });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <main style={styles.grid}>
+      <section style={styles.leftColumn}>
+        <Card title="DNS Health Dashboard" description="Run an all-in-one check across MX, SPF, DMARC, A, AAAA, and NS records.">
+          <div style={styles.searchRow}>
+            <input style={styles.searchInput} value={domain} onChange={e => setDomain(e.target.value)} placeholder="contoso.com" />
+            <button style={styles.primaryButton} onClick={runHealthCheck}>{loading ? "Checking..." : "Run Health Check"}</button>
+          </div>
+        </Card>
+        {results && <Card title="DNS Findings" description="Raw DNS records returned from public DNS.">
+          <DnsList title="MX" records={results.mx} />
+          <DnsList title="SPF" records={results.spfRecords} />
+          <DnsList title="DMARC" records={results.dmarcRecords} />
+          <DnsList title="A" records={results.a} />
+          <DnsList title="AAAA" records={results.aaaa} />
+          <DnsList title="NS" records={results.ns} />
+        </Card>}
+      </section>
+      <aside style={styles.rightColumn}>
+        <Card title="Health Summary" description="High-level email DNS readiness.">
+          {results ? <>
+            <div style={styles.metrics}>
+              <Metric label="MX" value={results.mx.length} danger={!results.mx.length} />
+              <Metric label="SPF" value={results.spfRecords.length} danger={results.spfRecords.length !== 1} />
+              <Metric label="DMARC" value={results.dmarcRecords.length} danger={!results.dmarcRecords.length} />
+            </div>
+            {results.warnings.length ? results.warnings.map(w => <div key={w} style={styles.warning}>⚠ {w}</div>) : <div style={styles.good}>✓ Core email DNS records look healthy.</div>}
+          </> : <div style={styles.notice}>Run a health check to see results.</div>}
+        </Card>
+      </aside>
+    </main>
+  );
+}
+
+function BlacklistTool() {
+  const [ip, setIp] = useState("8.8.8.8");
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState(null);
+
+  async function checkIp() {
+    const cleanIp = ip.trim();
+    if (!cleanIp) return;
+    setLoading(true);
+    try {
+      const response = await fetch(`https://internetdb.shodan.io/${encodeURIComponent(cleanIp)}`);
+      const data = response.ok ? await response.json() : {};
+      setResult({
+        ip: cleanIp,
+        ports: data.ports || [],
+        tags: data.tags || [],
+        vulns: data.vulns || [],
+        hostnames: data.hostnames || [],
+        cpes: data.cpes || [],
+      });
+    } catch {
+      setResult({ ip: cleanIp, error: "Public reputation lookup failed." });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <main style={styles.grid}>
+      <section style={styles.leftColumn}>
+        <Card title="IP Blacklist / Exposure Check" description="Browser-safe public exposure check using InternetDB signals. Add a backend later for Spamhaus/Barracuda-style RBL checks.">
+          <div style={styles.searchRow}>
+            <input style={styles.searchInput} value={ip} onChange={e => setIp(e.target.value)} placeholder="203.0.113.25" />
+            <button style={styles.primaryButton} onClick={checkIp}>{loading ? "Checking..." : "Check IP"}</button>
+          </div>
+        </Card>
+        {result && <Card title="Reputation Signals" description="Open ports, hostnames, tags, and known vulnerability exposure when available.">
+          {result.error ? <div style={styles.warning}>⚠ {result.error}</div> : <>
+            <Finding label="IP" value={result.ip} />
+            <Finding label="Hostnames" value={result.hostnames?.join(", ") || "None reported"} />
+            <Finding label="Open Ports" value={result.ports?.join(", ") || "None reported"} />
+            <Finding label="Tags" value={result.tags?.join(", ") || "None reported"} />
+            <Finding label="Vulnerabilities" value={result.vulns?.join(", ") || "None reported"} />
+          </>}
+        </Card>}
+      </section>
+      <aside style={styles.rightColumn}>
+        <Card title="Blacklist Notes" description="Why this tab is designed this way.">
+          <div style={styles.notice}>DNSBL/RBL providers usually require server-side DNS queries or paid APIs. This frontend version uses public exposure signals and is ready for a backend connector later.</div>
+          <div style={styles.good}>✓ Good next backend APIs: AbuseIPDB, VirusTotal, Spamhaus DQS, Google Safe Browsing.</div>
+        </Card>
+      </aside>
+    </main>
+  );
+}
+
+function DomainScoreTool() {
+  const [domain, setDomain] = useState("example.com");
+  const [loading, setLoading] = useState(false);
+  const [score, setScore] = useState(null);
+
+  async function calculateScore() {
+    const cleanDomain = domain.trim();
+    if (!cleanDomain) return;
+    setLoading(true);
+    try {
+      const [mx, txt, dmarc] = await Promise.all([
+        dnsLookup(cleanDomain, "MX"),
+        dnsLookup(cleanDomain, "TXT"),
+        dnsLookup(`_dmarc.${cleanDomain}`, "TXT"),
+      ]);
+      const spf = txt.filter(r => cleanTxtRecord(r.data).toLowerCase().startsWith("v=spf1"));
+      const dmarcRecord = dmarc.find(r => cleanTxtRecord(r.data).toLowerCase().startsWith("v=dmarc1"));
+      let points = 100;
+      const findings = [];
+      if (!mx.length) { points -= 25; findings.push("No MX records found."); }
+      if (!spf.length) { points -= 25; findings.push("No SPF record found."); }
+      if (spf.length > 1) { points -= 20; findings.push("Multiple SPF records found."); }
+      if (!dmarcRecord) { points -= 25; findings.push("No DMARC record found."); }
+      if (dmarcRecord && cleanTxtRecord(dmarcRecord.data).toLowerCase().includes("p=none")) { points -= 10; findings.push("DMARC policy is monitoring-only."); }
+      setScore({ value: Math.max(points, 0), findings, mx, spf, dmarcRecord });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <main style={styles.grid}>
+      <section style={styles.leftColumn}>
+        <Card title="Domain Reputation Score" description="Score a domain based on core email authentication posture.">
+          <div style={styles.searchRow}>
+            <input style={styles.searchInput} value={domain} onChange={e => setDomain(e.target.value)} placeholder="contoso.com" />
+            <button style={styles.primaryButton} onClick={calculateScore}>{loading ? "Scoring..." : "Score Domain"}</button>
+          </div>
+        </Card>
+      </section>
+      <aside style={styles.rightColumn}>
+        <Card title="Score" description="Simple posture score based on DNS authentication checks.">
+          {score ? <>
+            <div style={styles.scoreCircle}>{score.value}</div>
+            {score.findings.length ? score.findings.map(f => <div key={f} style={styles.warning}>⚠ {f}</div>) : <div style={styles.good}>✓ Strong baseline email DNS posture.</div>}
+          </> : <div style={styles.notice}>Run a domain score to begin.</div>}
+        </Card>
+      </aside>
+    </main>
+  );
+}
+
+function DMARCReportAnalyzer() {
+  const sample = `<feedback><report_metadata><org_name>Example</org_name></report_metadata><record><row><source_ip>203.0.113.25</source_ip><count>42</count><policy_evaluated><disposition>none</disposition><dkim>pass</dkim><spf>pass</spf></policy_evaluated></row><identifiers><header_from>example.com</header_from></identifiers></record></feedback>`;
+  const [xml, setXml] = useState(sample);
+  const parsed = useMemo(() => parseDmarcXml(xml), [xml]);
+
+  return (
+    <main style={styles.grid}>
+      <section style={styles.leftColumn}>
+        <Card title="DMARC XML Report Analyzer" description="Paste an aggregate DMARC XML report to summarize sending sources and pass/fail results.">
+          <textarea style={{ ...styles.input, minHeight: 360, fontFamily: "Consolas, monospace" }} value={xml} onChange={e => setXml(e.target.value)} />
+        </Card>
+        <Card title="Parsed Sources" description="Aggregate report records found in the XML.">
+          {parsed.records.length ? parsed.records.map((r, i) => <div key={`${r.sourceIp}-${i}`} style={styles.smallCode}>{r.sourceIp} · Count {r.count} · SPF {r.spf} · DKIM {r.dkim} · From {r.headerFrom}</div>) : <div style={styles.notice}>No DMARC records parsed.</div>}
+        </Card>
+      </section>
+      <aside style={styles.rightColumn}>
+        <Card title="Report Summary" description="Fast aggregate view.">
+          <div style={styles.metrics}>
+            <Metric label="Sources" value={parsed.records.length} />
+            <Metric label="Messages" value={parsed.total} />
+            <Metric label="Failures" value={parsed.failures} danger={parsed.failures > 0} />
+          </div>
+          {parsed.failures ? <div style={styles.warning}>⚠ Some reported sources failed SPF or DKIM evaluation.</div> : <div style={styles.good}>✓ No failures found in parsed report records.</div>}
+        </Card>
+      </aside>
+    </main>
+  );
+}
+
+function SMTPTLSTool() {
+  return (
+    <main style={styles.grid}>
+      <section style={styles.leftColumn}>
+        <Card title="SMTP / TLS Tester" description="Browser apps cannot open raw SMTP sockets to ports 25, 465, or 587. This page gives safe commands and can be connected to a backend later.">
+          <div style={styles.largeCode}>openssl s_client -connect mail.example.com:25 -starttls smtp</div>
+          <div style={styles.largeCode}>openssl s_client -connect smtp.example.com:587 -starttls smtp</div>
+          <div style={styles.largeCode}>Test-NetConnection smtp.example.com -Port 587</div>
+        </Card>
+      </section>
+      <aside style={styles.rightColumn}>
+        <Card title="Backend Upgrade Path" description="To make this live, add a small Node/Express or serverless backend that performs TCP/TLS checks.">
+          <div style={styles.notice}>Frontend JavaScript cannot test SMTP ports directly due browser network restrictions.</div>
+          <div style={styles.good}>✓ Backend checks can return banner, STARTTLS support, certificate issuer, expiration, and protocol errors.</div>
+        </Card>
+      </aside>
+    </main>
+  );
+}
+
+function DNSPropagationTool() {
+  const [domain, setDomain] = useState("example.com");
+  const [type, setType] = useState("MX");
+  const [records, setRecords] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  async function checkPropagation() {
+    setLoading(true);
+    try {
+      const result = await dnsLookup(domain.trim(), type);
+      setRecords(result);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <main style={styles.grid}>
+      <section style={styles.leftColumn}>
+        <Card title="DNS Propagation Checker" description="Basic public resolver check. Add multi-region resolvers later through a backend API.">
+          <div style={styles.searchRow}>
+            <input style={styles.searchInput} value={domain} onChange={e => setDomain(e.target.value)} />
+            <select style={styles.input} value={type} onChange={e => setType(e.target.value)}>
+              <option>MX</option><option>TXT</option><option>A</option><option>AAAA</option><option>NS</option><option>CNAME</option>
+            </select>
+            <button style={styles.primaryButton} onClick={checkPropagation}>{loading ? "Checking..." : "Check"}</button>
+          </div>
+        </Card>
+        <Card title="Resolver Result" description="DNS answer from Google DNS-over-HTTPS.">
+          {records.length ? records.map((r, i) => <div key={`${r.data}-${i}`} style={styles.smallCode}>{r.data} · TTL {r.TTL}</div>) : <div style={styles.notice}>Run a lookup to see results.</div>}
+        </Card>
+      </section>
+      <aside style={styles.rightColumn}>
+        <Card title="Propagation Notes" description="True global propagation needs multiple resolvers or regions.">
+          <div style={styles.notice}>This frontend version checks Google DNS. A backend can query Cloudflare, Quad9, OpenDNS, and regional resolvers.</div>
+        </Card>
+      </aside>
+    </main>
+  );
+}
+
+async function dnsLookup(name, type) {
+  const res = await fetch(`https://dns.google/resolve?name=${encodeURIComponent(name)}&type=${encodeURIComponent(type)}`);
+  if (!res.ok) return [];
+  const data = await res.json();
+  return data.Answer || [];
+}
+
+function DnsList({ title, records }) {
+  return (
+    <div style={{ marginTop: 14 }}>
+      <strong>{title}</strong>
+      {records.length ? records.map((record, index) => <div key={`${title}-${index}-${record.data}`} style={styles.smallCode}>{cleanTxtRecord(record.data)} · TTL {record.TTL}</div>) : <div style={styles.notice}>No {title} records found.</div>}
+    </div>
+  );
+}
+
+function parseDmarcXml(xml) {
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(xml, "application/xml");
+    const records = [...doc.querySelectorAll("record")].map(record => {
+      const get = selector => record.querySelector(selector)?.textContent || "unknown";
+      return { sourceIp: get("source_ip"), count: Number(get("count")) || 0, spf: get("policy_evaluated > spf"), dkim: get("policy_evaluated > dkim"), headerFrom: get("header_from") };
+    });
+    return { records, total: records.reduce((sum, r) => sum + r.count, 0), failures: records.filter(r => r.spf !== "pass" || r.dkim !== "pass").length };
+  } catch {
+    return { records: [], total: 0, failures: 0 };
+  }
+}
+
 function MessageAnalyzerTool() {
   const sampleHeaders = [
     "Authentication-Results: mx.example.com; spf=pass smtp.mailfrom=sender.com; dkim=pass header.d=sender.com; dmarc=pass header.from=sender.com",
@@ -1103,8 +1410,8 @@ const styles = {
   title: { margin: "8px 0", fontSize: 42, lineHeight: 1 },
   subtitle: { margin: 0, color: "#cbd5e1", maxWidth: 760, fontSize: 16 },
   headerBadge: { background: "rgba(255,255,255,.12)", border: "1px solid rgba(255,255,255,.2)", padding: "10px 14px", borderRadius: 999, fontWeight: 700 },
-  tabs: { maxWidth: 1180, margin: "0 auto 22px", display: "flex", gap: 10, background: "white", border: "1px solid #e5e7eb", padding: 8, borderRadius: 14, boxShadow: "0 8px 22px rgba(15,23,42,.05)" },
-  tab: { flex: 1, border: 0, background: "transparent", borderRadius: 10, padding: "12px 14px", fontWeight: 800, color: "#374151", cursor: "pointer" },
+  tabs: { maxWidth: 1180, margin: "0 auto 22px", display: "flex", flexWrap: "wrap", gap: 10, background: "white", border: "1px solid #e5e7eb", padding: 8, borderRadius: 14, boxShadow: "0 8px 22px rgba(15,23,42,.05)" },
+  tab: { flex: "1 1 140px", border: 0, background: "transparent", borderRadius: 10, padding: "12px 14px", fontWeight: 800, color: "#374151", cursor: "pointer" },
   tabActive: { background: "#2563eb", color: "white" },
   grid: { maxWidth: 1180, margin: "0 auto", display: "grid", gridTemplateColumns: "1.3fr .9fr", gap: 22 },
   leftColumn: { display: "flex", flexDirection: "column", gap: 20 },
@@ -1149,6 +1456,7 @@ const styles = {
   riskLow: { background: "#dcfce7", color: "#166534" },
   riskReview: { background: "#fef3c7", color: "#92400e" },
   riskHigh: { background: "#fee2e2", color: "#991b1b" },
+  scoreCircle: { width: 120, height: 120, borderRadius: "50%", background: "#2563eb", color: "white", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 42, fontWeight: 900, margin: "0 auto 18px" },
   tableWrap: { overflowX: "auto", border: "1px solid #e5e7eb", borderRadius: 12 },
   table: { width: "100%", borderCollapse: "collapse", fontSize: 14 },
   th: { textAlign: "left", background: "#f9fafb", color: "#374151", padding: 12, borderBottom: "1px solid #e5e7eb" },
