@@ -328,7 +328,7 @@ function SPFTool() {
               <button key={provider.include} style={{ ...styles.providerButton, ...(selectedProviders.includes(provider.include) ? styles.providerActive : {}) }} onClick={() => toggleProvider(provider.include)}>
                 <strong>{provider.name}</strong>
                 <span>{provider.category}</span>
-                <code>include:{provider.include}</code>
+                <code style={styles.providerCode}>include:{provider.include}</code>
               </button>
             ))}
           </div>
@@ -1517,7 +1517,8 @@ const styles = {
   primaryButton: { background: "linear-gradient(135deg,#2563eb,#1d4ed8)", color: "white", border: 0, borderRadius: 12, padding: "0 18px", fontWeight: 800, cursor: "pointer", whiteSpace: "nowrap", boxShadow: "0 10px 20px rgba(37,99,235,.25)" },
   secondaryButton: { background: "#111827", color: "white", border: 0, borderRadius: 12, padding: "0 14px", fontWeight: 800, cursor: "pointer" },
   providerGrid: { display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 10 },
-  providerButton: { textAlign: "left", background: "var(--soft-bg)", color: "var(--text)", border: "1px solid var(--card-border)", borderRadius: 14, padding: 13, cursor: "pointer", display: "flex", flexDirection: "column", gap: 4 },
+  providerButton: { textAlign: "left", background: "var(--soft-bg)", color: "var(--text)", border: "1px solid var(--card-border)", borderRadius: 14, padding: 13, cursor: "pointer", display: "flex", flexDirection: "column", gap: 4, overflow: "hidden" },
+  providerCode: { display: "block", background: "var(--code-bg)", color: "var(--code-text)", border: "1px solid var(--card-border)", borderRadius: 8, padding: "8px 10px", fontFamily: "Consolas, monospace", fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
   providerActive: { background: "var(--tab-hover)", border: "1px solid #2563eb", boxShadow: "inset 0 0 0 1px #2563eb" },
   recordList: { marginTop: 14 },
   inlineCheck: { display: "flex", gap: 8, alignItems: "center", marginTop: 12, fontWeight: 800, color: "var(--text)" },
