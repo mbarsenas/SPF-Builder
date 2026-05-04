@@ -92,21 +92,23 @@ export default function App() {
         <div>
           <div style={styles.brand}>MailAuth Tools</div>
           <h1 style={styles.title}>Email DNS Toolkit</h1>
-          <p style={styles.subtitle}>Build, inspect, analyze, and publish SPF, DMARC, DKIM, and email header authentication data from one clean admin console.</p>
+          <p style={styles.subtitle}>Build, inspect, analyze, and publish SPF, DMARC, DKIM, MX, and email header authentication data from one clean admin console.</p>
         </div>
-        <div style={styles.headerBadge}>SPF · DMARC · DKIM · Analyze</div>
+        <div style={styles.headerBadge}>SPF · DMARC · DKIM · MX · Analyze</div>
       </header>
 
       <nav style={styles.tabs}>
         <button style={{ ...styles.tab, ...(activeTool === "spf" ? styles.tabActive : {}) }} onClick={() => setActiveTool("spf")}>SPF Lookup + Merge</button>
         <button style={{ ...styles.tab, ...(activeTool === "dmarc" ? styles.tabActive : {}) }} onClick={() => setActiveTool("dmarc")}>DMARC Builder</button>
         <button style={{ ...styles.tab, ...(activeTool === "dkim" ? styles.tabActive : {}) }} onClick={() => setActiveTool("dkim")}>DKIM Helper</button>
+        <button style={{ ...styles.tab, ...(activeTool === "mx" ? styles.tabActive : {}) }} onClick={() => setActiveTool("mx")}>MX Records</button>
         <button style={{ ...styles.tab, ...(activeTool === "analyzer" ? styles.tabActive : {}) }} onClick={() => setActiveTool("analyzer")}>Message Analyzer</button>
       </nav>
 
       {activeTool === "spf" && <SPFTool />}
       {activeTool === "dmarc" && <DMARCTool />}
       {activeTool === "dkim" && <DKIMTool />}
+      {activeTool === "mx" && <MXTool />}
       {activeTool === "analyzer" && <MessageAnalyzerTool />}
     </div>
   );
@@ -125,6 +127,8 @@ function SPFTool() {
   const [policy, setPolicy] = useState("~all");
   const [mergeExisting, setMergeExisting] = useState(true);
   const [copied, setCopied] = useState(false);
+  const [spfExpandLoading, setSpfExpandLoading] = useState(false);
+  const [spfExpandResult, setSpfExpandResult] = useState(null);
 
   const existing = useMemo(() => {
     return existingRecords.length ? parseSPF(existingRecords[0]) : {
@@ -230,6 +234,21 @@ function SPFTool() {
     setTimeout(() => setCopied(false), 1400);
   }
 
+  async function expandSPF() {
+    const cleanDomain = domain.trim();
+    if (!cleanDomain) return;
+    setSpfExpandLoading(true);
+    setSpfExpandResult(null);
+    try {
+      const result = await expandSPFDomain(cleanDomain);
+      setSpfExpandResult(result);
+    } catch {
+      setSpfExpandResult({ domain: cleanDomain, records: [], includes: [], ip4: [], ip6: [], errors: ["SPF expansion failed."], lookupCount: 0, flattened: "" });
+    } finally {
+      setSpfExpandLoading(false);
+    }
+  }
+
   return (
     <main style={styles.grid}>
       <section style={styles.leftColumn}>
@@ -309,9 +328,81 @@ function SPFTool() {
           <pre style={styles.largeCode}>{record}</pre>
           <button style={styles.copyButton} onClick={copyRecord}>{copied ? "Copied!" : "Copy SPF Record"}</button>
         </Card>
+
+        <Card title="SPF Recursive Expansion" description="Resolve include mechanisms recursively to see actual IP sources and DNS lookup pressure.">
+          <button style={styles.copyButton} onClick={expandSPF}>{spfExpandLoading ? "Expanding..." : "Expand SPF Includes"}</button>
+          {spfExpandResult && (
+            <div style={{ marginTop: 12 }}>
+              <div style={styles.metrics}>
+                <Metric label="Lookups" value={spfExpandResult.lookupCount} danger={spfExpandResult.lookupCount > 10} />
+                <Metric label="Includes" value={spfExpandResult.includes.length} />
+                <Metric label="IP Ranges" value={spfExpandResult.ip4.length + spfExpandResult.ip6.length} />
+              </div>
+              {spfExpandResult.lookupCount > 10 && <div style={styles.warning}>⚠ Expanded SPF exceeds 10 DNS lookups. Receivers may return SPF PermError.</div>}
+              {spfExpandResult.errors.map(error => <div key={error} style={styles.warning}>⚠ {error}</div>)}
+              <div style={styles.smallCode}>{spfExpandResult.includes.length ? `Includes: ${spfExpandResult.includes.join(", ")}` : "No nested includes found."}</div>
+              <pre style={styles.largeCode}>{spfExpandResult.flattened || "No flattened IP mechanisms found."}</pre>
+            </div>
+          )}
+        </Card>
       </aside>
     </main>
   );
+}
+
+async function dnsTxtLookup(name) {
+  const res = await fetch(`https://dns.google/resolve?name=${encodeURIComponent(name)}&type=TXT`);
+  if (!res.ok) throw new Error(`DNS lookup failed for ${name}`);
+  const data = await res.json();
+  return (data.Answer || []).map(answer => cleanTxtRecord(answer.data));
+}
+
+async function expandSPFDomain(domain, seen = new Set(), depth = 0) {
+  const result = { domain, records: [], includes: [], ip4: [], ip6: [], errors: [], lookupCount: 0, flattened: "" };
+  if (depth > 10) {
+    result.errors.push(`Maximum recursion depth reached at ${domain}.`);
+    return result;
+  }
+  if (seen.has(domain)) {
+    result.errors.push(`Loop detected for ${domain}.`);
+    return result;
+  }
+  seen.add(domain);
+
+  try {
+    const records = (await dnsTxtLookup(domain)).filter(txt => txt.toLowerCase().startsWith("v=spf1"));
+    result.records = records;
+    if (!records.length) {
+      result.errors.push(`No SPF record found for ${domain}.`);
+      return result;
+    }
+    if (records.length > 1) result.errors.push(`Multiple SPF records found for ${domain}.`);
+
+    const parsed = parseSPF(records[0]);
+    result.lookupCount += parsed.includes.length + (parsed.mx ? 1 : 0) + (parsed.a ? 1 : 0) + parsed.advanced.filter(x => x.toLowerCase() === "ptr" || x.toLowerCase().startsWith("exists:") || x.toLowerCase().startsWith("redirect=")).length;
+    result.includes.push(...parsed.includes);
+    result.ip4.push(...parsed.ip4);
+    result.ip6.push(...parsed.ip6);
+
+    for (const include of parsed.includes) {
+      const child = await expandSPFDomain(include, seen, depth + 1);
+      result.includes.push(...child.includes);
+      result.ip4.push(...child.ip4);
+      result.ip6.push(...child.ip6);
+      result.errors.push(...child.errors);
+      result.lookupCount += child.lookupCount;
+    }
+
+    result.includes = uniqueClean(result.includes);
+    result.ip4 = uniqueClean(result.ip4);
+    result.ip6 = uniqueClean(result.ip6);
+    result.errors = uniqueClean(result.errors);
+    result.flattened = buildSPF({ mx: false, a: false, includes: [], ip4: result.ip4, ip6: result.ip6, advanced: [], policy: parsed.policy });
+    return result;
+  } catch {
+    result.errors.push(`Lookup failed for ${domain}.`);
+    return result;
+  }
 }
 
 function DMARCTool() {
@@ -584,6 +675,150 @@ function DKIMTool() {
   );
 }
 
+function MXTool() {
+  const [domain, setDomain] = useState("example.com");
+  const [mxRecords, setMxRecords] = useState([]);
+  const [aRecords, setARecords] = useState({});
+  const [lookupStatus, setLookupStatus] = useState("idle");
+  const [lookupMessage, setLookupMessage] = useState("");
+  const [copied, setCopied] = useState(false);
+
+  function stripTrailingDot(value) {
+    const text = String(value || "").trim();
+    return text.endsWith(".") ? text.slice(0, -1) : text;
+  }
+
+  const mxWarnings = useMemo(() => {
+    const items = [];
+    if (!mxRecords.length && lookupStatus === "success") items.push("No MX records found. This domain may not be able to receive email.");
+    if (mxRecords.length === 1) items.push("Only one MX record found. Consider redundancy if this is a production mail domain.");
+    const priorities = mxRecords.map(record => record.priority);
+    if (new Set(priorities).size < priorities.length && mxRecords.length > 1) items.push("Multiple MX records share the same priority. This can be valid for load balancing, but verify it is intentional.");
+    mxRecords.forEach(record => {
+      if (!aRecords[record.exchange]?.length) items.push(`${record.exchange} did not return A records from the available lookup.`);
+    });
+    return uniqueClean(items);
+  }, [mxRecords, aRecords, lookupStatus]);
+
+  async function lookupMX() {
+    const cleanDomain = domain.trim();
+    if (!cleanDomain) return;
+    setLookupStatus("loading");
+    setLookupMessage("");
+    setMxRecords([]);
+    setARecords({});
+
+    try {
+      const res = await fetch(`https://dns.google/resolve?name=${encodeURIComponent(cleanDomain)}&type=MX`);
+      if (!res.ok) throw new Error("MX lookup failed");
+      const data = await res.json();
+      const records = (data.Answer || []).map(answer => {
+        const parts = String(answer.data || "").trim().split(" ").filter(Boolean);
+        return { priority: Number(parts[0]), exchange: stripTrailingDot(parts.slice(1).join(" ")), ttl: answer.TTL || "" };
+      }).filter(record => record.exchange).sort((a, b) => a.priority - b.priority);
+
+      setMxRecords(records);
+      if (!records.length) {
+        setLookupStatus("warning");
+        setLookupMessage(`No MX records found for ${cleanDomain}.`);
+        return;
+      }
+
+      const resolved = {};
+      await Promise.all(records.map(async record => {
+        try {
+          const aRes = await fetch(`https://dns.google/resolve?name=${encodeURIComponent(record.exchange)}&type=A`);
+          const aData = await aRes.json();
+          resolved[record.exchange] = (aData.Answer || []).map(item => item.data).filter(Boolean);
+        } catch {
+          resolved[record.exchange] = [];
+        }
+      }));
+      setARecords(resolved);
+      setLookupStatus("success");
+      setLookupMessage(`${records.length} MX record${records.length > 1 ? "s" : ""} found for ${cleanDomain}.`);
+    } catch {
+      setLookupStatus("error");
+      setLookupMessage("MX lookup failed. Check the domain and try again.");
+    }
+  }
+
+  async function copyMXSummary() {
+    const summary = mxRecords.map(record => {
+      const ips = aRecords[record.exchange]?.join(", ") || "No A records found";
+      return `${record.priority} ${record.exchange} | TTL: ${record.ttl || "unknown"} | A: ${ips}`;
+    }).join(String.fromCharCode(10));
+    await navigator.clipboard.writeText(summary || "No MX records found.");
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1400);
+  }
+
+  return (
+    <main style={styles.grid}>
+      <section style={styles.leftColumn}>
+        <Card title="MX Record Lookup" description="Check which mail exchangers receive email for a domain.">
+          <div style={styles.searchRow}>
+            <input style={styles.searchInput} value={domain} onChange={e => setDomain(e.target.value)} placeholder="contoso.com" />
+            <button style={styles.primaryButton} onClick={lookupMX} disabled={lookupStatus === "loading"}>{lookupStatus === "loading" ? "Checking..." : "Lookup MX"}</button>
+          </div>
+          {lookupMessage && <Status type={lookupStatus}>{lookupMessage}</Status>}
+        </Card>
+
+        <Card title="MX Results" description="Lower priority values are preferred first by sending mail servers.">
+          {mxRecords.length ? (
+            <div style={styles.tableWrap}>
+              <table style={styles.table}>
+                <thead>
+                  <tr>
+                    <th style={styles.th}>Priority</th>
+                    <th style={styles.th}>Exchange</th>
+                    <th style={styles.th}>TTL</th>
+                    <th style={styles.th}>A Records</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {mxRecords.map(record => (
+                    <tr key={`${record.priority}-${record.exchange}`}>
+                      <td style={styles.td}><strong>{record.priority}</strong></td>
+                      <td style={styles.td}>{record.exchange}</td>
+                      <td style={styles.td}>{record.ttl || "—"}</td>
+                      <td style={styles.td}>{aRecords[record.exchange]?.length ? aRecords[record.exchange].join(", ") : "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div style={styles.notice}>Run an MX lookup to see mail exchangers.</div>
+          )}
+        </Card>
+      </section>
+
+      <aside style={styles.rightColumn}>
+        <Card title="MX Health" description="Quick checks for mail-receiving reliability.">
+          <div style={styles.metrics}>
+            <Metric label="MX Records" value={mxRecords.length} danger={lookupStatus === "success" && !mxRecords.length} />
+            <Metric label="Unique Priorities" value={new Set(mxRecords.map(r => r.priority)).size} />
+            <Metric label="Hosts w/ A" value={Object.values(aRecords).filter(v => v?.length).length} />
+          </div>
+          {mxWarnings.length ? mxWarnings.map(w => <div key={w} style={styles.warning}>⚠ {w}</div>) : <div style={styles.good}>✓ MX records look healthy from available checks.</div>}
+        </Card>
+
+        <Card title="Common MX Providers" description="Useful patterns for identifying hosted mail platforms.">
+          <div style={styles.smallCode}>Microsoft 365: *.mail.protection.outlook.com</div>
+          <div style={styles.smallCode}>Google Workspace: aspmx.l.google.com</div>
+          <div style={styles.smallCode}>Proofpoint: pphosted.com</div>
+          <div style={styles.smallCode}>Mimecast: mimecast.com</div>
+        </Card>
+
+        <Card title="MX Summary" description="Copy a compact MX summary for tickets or documentation.">
+          <button style={styles.copyButton} onClick={copyMXSummary}>{copied ? "Copied!" : "Copy MX Summary"}</button>
+        </Card>
+      </aside>
+    </main>
+  );
+}
+
 function MessageAnalyzerTool() {
   const sampleHeaders = [
     "Authentication-Results: mx.example.com; spf=pass smtp.mailfrom=sender.com; dkim=pass header.d=sender.com; dmarc=pass header.from=sender.com",
@@ -596,7 +831,48 @@ function MessageAnalyzerTool() {
 
   const [headers, setHeaders] = useState(sampleHeaders);
   const [copied, setCopied] = useState(false);
+  const [ipIntelLoading, setIpIntelLoading] = useState(false);
+  const [ipIntel, setIpIntel] = useState([]);
   const analysis = useMemo(() => analyzeMessageHeaders(headers), [headers]);
+
+  async function lookupIpIntel() {
+    setIpIntelLoading(true);
+    try {
+      const results = await Promise.all(analysis.ips.slice(0, 8).map(async ip => {
+        const base = { ip, country: "Unknown", region: "", city: "", isp: "Unknown", org: "", asn: "", risk: "Unknown", riskNotes: [] };
+        try {
+          const geoRes = await fetch(`https://ipwho.is/${encodeURIComponent(ip)}`);
+          const geo = await geoRes.json();
+          if (geo && geo.success !== false) {
+            base.country = geo.country || "Unknown";
+            base.region = geo.region || "";
+            base.city = geo.city || "";
+            base.isp = geo.connection?.isp || "Unknown";
+            base.org = geo.connection?.org || "";
+            base.asn = geo.connection?.asn ? `AS${geo.connection.asn}` : "";
+          }
+        } catch {
+          base.riskNotes.push("Geo lookup failed");
+        }
+        try {
+          const repRes = await fetch(`https://internetdb.shodan.io/${encodeURIComponent(ip)}`);
+          if (repRes.ok) {
+            const rep = await repRes.json();
+            if (rep.vulns?.length) base.riskNotes.push(`${rep.vulns.length} vulnerabilities reported by InternetDB`);
+            if (rep.tags?.length) base.riskNotes.push(`Tags: ${rep.tags.join(", ")}`);
+            if (rep.ports?.length) base.riskNotes.push(`Open ports: ${rep.ports.slice(0, 8).join(", ")}`);
+          }
+        } catch {
+          base.riskNotes.push("Reputation lookup unavailable");
+        }
+        base.risk = base.riskNotes.some(note => note.includes("vulnerabilities")) ? "Elevated" : base.riskNotes.length ? "Review" : "Low";
+        return base;
+      }));
+      setIpIntel(results);
+    } finally {
+      setIpIntelLoading(false);
+    }
+  }
 
   async function copySummary() {
     const summary = [
@@ -661,6 +937,21 @@ function MessageAnalyzerTool() {
           <div style={{ marginTop: 14 }}>
             {analysis.receivedHeaders.slice(0, 6).map((line, index) => <div key={`${line}-${index}`} style={styles.smallCode}>{index + 1}. {line}</div>)}
           </div>
+        </Card>
+
+        <Card title="IP Geo + Reputation" description="Enrich extracted source IPs with geo, ISP, ASN, and basic public exposure signals.">
+          <button style={styles.copyButton} onClick={lookupIpIntel} disabled={!analysis.ips.length || ipIntelLoading}>{ipIntelLoading ? "Checking IPs..." : "Lookup IP Intelligence"}</button>
+          {ipIntel.map(item => (
+            <div key={item.ip} style={styles.intelCard}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                <strong>{item.ip}</strong>
+                <span style={{ ...styles.riskPill, ...(item.risk === "Elevated" ? styles.riskHigh : item.risk === "Review" ? styles.riskReview : styles.riskLow) }}>{item.risk}</span>
+              </div>
+              <div style={{ marginTop: 8, color: "#4b5563" }}>{[item.city, item.region, item.country].filter(Boolean).join(", ") || "Location unknown"}</div>
+              <div style={{ marginTop: 4, color: "#4b5563" }}>{[item.asn, item.isp, item.org].filter(Boolean).join(" · ") || "Network unknown"}</div>
+              {item.riskNotes.length ? item.riskNotes.map(note => <div key={note} style={styles.warning}>⚠ {note}</div>) : <div style={styles.good}>✓ No public exposure signals found from available sources.</div>}
+            </div>
+          ))}
         </Card>
 
         <Card title="Analysis Summary" description="Copy a compact summary for tickets or incident notes.">
@@ -853,4 +1144,13 @@ const styles = {
   tagButton: { marginLeft: 8, border: 0, background: "transparent", cursor: "pointer", color: "#3730a3", fontWeight: 900 },
   findingGrid: { display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 10 },
   finding: { background: "#f9fafb", border: "1px solid #e5e7eb", borderRadius: 12, padding: 12, display: "flex", flexDirection: "column", gap: 6, wordBreak: "break-word" },
+  intelCard: { background: "#f9fafb", border: "1px solid #e5e7eb", borderRadius: 12, padding: 12, marginTop: 12 },
+  riskPill: { borderRadius: 999, padding: "4px 9px", fontSize: 12, fontWeight: 800 },
+  riskLow: { background: "#dcfce7", color: "#166534" },
+  riskReview: { background: "#fef3c7", color: "#92400e" },
+  riskHigh: { background: "#fee2e2", color: "#991b1b" },
+  tableWrap: { overflowX: "auto", border: "1px solid #e5e7eb", borderRadius: 12 },
+  table: { width: "100%", borderCollapse: "collapse", fontSize: 14 },
+  th: { textAlign: "left", background: "#f9fafb", color: "#374151", padding: 12, borderBottom: "1px solid #e5e7eb" },
+  td: { padding: 12, borderBottom: "1px solid #e5e7eb", verticalAlign: "top" },
 };
