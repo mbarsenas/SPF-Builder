@@ -85,30 +85,45 @@ function parseDMARC(record) {
 
 export default function App() {
   const [activeTool, setActiveTool] = useState("mx");
+  const [theme, setTheme] = useState("light");
+  const themeVars = theme === "dark" ? darkThemeVars : lightThemeVars;
 
   return (
-    <div style={styles.page}>
+    <div style={{ ...styles.page, ...themeVars }}>
       <header style={styles.header}>
-        <div>
-          <div style={styles.brand}>MailAuth Tools</div>
-          <h1 style={styles.title}>Email DNS Toolkit</h1>
-          <p style={styles.subtitle}>Build, inspect, analyze, and publish SPF, DMARC, DKIM, MX, and email header authentication data from one clean admin console.</p>
+        <div style={styles.logoWrap}>
+          <div style={styles.logoMark}>✉</div>
+          <div>
+            <div style={styles.brand}>MailAuth Tools</div>
+            <h1 style={styles.title}>Email DNS Toolkit</h1>
+            <p style={styles.subtitle}>Build, inspect, analyze, and publish SPF, DMARC, DKIM, MX, and email header authentication data from one clean admin console.</p>
+          </div>
         </div>
-        <div style={styles.headerBadge}>MX · SPF · DMARC · DKIM · Analyze · Health</div>
+        <div style={styles.headerActions}>
+          <button style={styles.themeButton} onClick={() => setTheme(theme === "light" ? "dark" : "light")}>{theme === "light" ? "🌙 Dark" : "☀️ Light"}</button>
+          <div style={styles.headerBadge}>MX · SPF · DMARC · DKIM · Analyze · Health</div>
+        </div>
       </header>
 
       <nav style={styles.tabs}>
-        <button style={{ ...styles.tab, ...(activeTool === "mx" ? styles.tabActive : {}) }} onClick={() => setActiveTool("mx")}>MX Records</button>
-        <button style={{ ...styles.tab, ...(activeTool === "health" ? styles.tabActive : {}) }} onClick={() => setActiveTool("health")}>DNS Health</button>
-        <button style={{ ...styles.tab, ...(activeTool === "spf" ? styles.tabActive : {}) }} onClick={() => setActiveTool("spf")}>SPF Lookup + Merge</button>
-        <button style={{ ...styles.tab, ...(activeTool === "dmarc" ? styles.tabActive : {}) }} onClick={() => setActiveTool("dmarc")}>DMARC Builder</button>
-        <button style={{ ...styles.tab, ...(activeTool === "dkim" ? styles.tabActive : {}) }} onClick={() => setActiveTool("dkim")}>DKIM Helper</button>
-        <button style={{ ...styles.tab, ...(activeTool === "blacklist" ? styles.tabActive : {}) }} onClick={() => setActiveTool("blacklist")}>Blacklist</button>
-        <button style={{ ...styles.tab, ...(activeTool === "score" ? styles.tabActive : {}) }} onClick={() => setActiveTool("score")}>Domain Score</button>
-        <button style={{ ...styles.tab, ...(activeTool === "reports" ? styles.tabActive : {}) }} onClick={() => setActiveTool("reports")}>DMARC Reports</button>
-        <button style={{ ...styles.tab, ...(activeTool === "smtp" ? styles.tabActive : {}) }} onClick={() => setActiveTool("smtp")}>SMTP/TLS</button>
-        <button style={{ ...styles.tab, ...(activeTool === "propagation" ? styles.tabActive : {}) }} onClick={() => setActiveTool("propagation")}>Propagation</button>
-        <button style={{ ...styles.tab, ...(activeTool === "analyzer" ? styles.tabActive : {}) }} onClick={() => setActiveTool("analyzer")}>Message Analyzer</button>
+        {[
+          ["mx", "📬", "MX Records"],
+          ["health", "🌐", "DNS Health"],
+          ["spf", "🛡", "SPF Lookup"],
+          ["dmarc", "📊", "DMARC Builder"],
+          ["dkim", "🔑", "DKIM Helper"],
+          ["blacklist", "🚫", "Blacklist"],
+          ["score", "⭐", "Domain Score"],
+          ["reports", "📄", "DMARC Reports"],
+          ["smtp", "🔐", "SMTP/TLS"],
+          ["propagation", "📡", "Propagation"],
+          ["analyzer", "🔎", "Message Analyzer"],
+        ].map(([id, icon, label]) => (
+          <button key={id} style={{ ...styles.tab, ...(activeTool === id ? styles.tabActive : {}) }} onClick={() => setActiveTool(id)}>
+            <span style={styles.tabIcon}>{icon}</span>
+            <span>{label}</span>
+          </button>
+        ))}
       </nav>
 
       {activeTool === "mx" && <MXTool />}
@@ -1403,62 +1418,101 @@ function Metric({ label, value, danger }) {
   );
 }
 
+const lightThemeVars = {
+  "--page-bg": "#f1f5f9",
+  "--card-bg": "#ffffff",
+  "--card-border": "#e2e8f0",
+  "--text": "#0f172a",
+  "--muted": "#64748b",
+  "--soft-bg": "#f8fafc",
+  "--code-bg": "#0f172a",
+  "--code-text": "#e2e8f0",
+  "--input-border": "#cbd5e1",
+  "--tab-bg": "#ffffff",
+  "--tab-text": "#1e293b",
+  "--tab-hover": "#eff6ff",
+  "--shadow": "0 12px 30px rgba(15,23,42,.08)",
+};
+
+const darkThemeVars = {
+  "--page-bg": "#020617",
+  "--card-bg": "#0f172a",
+  "--card-border": "#1e293b",
+  "--text": "#e5e7eb",
+  "--muted": "#94a3b8",
+  "--soft-bg": "#111827",
+  "--code-bg": "#020617",
+  "--code-text": "#dbeafe",
+  "--input-border": "#334155",
+  "--tab-bg": "#0f172a",
+  "--tab-text": "#cbd5e1",
+  "--tab-hover": "#172554",
+  "--shadow": "0 18px 40px rgba(0,0,0,.35)",
+};
+
 const styles = {
-  page: { minHeight: "100vh", background: "#f4f6f8", color: "#1f2937", fontFamily: "Inter, Arial, sans-serif", padding: "28px" },
-  header: { maxWidth: 1180, margin: "0 auto 18px", background: "linear-gradient(135deg,#0f172a,#1e3a8a)", color: "white", borderRadius: 18, padding: "30px 34px", display: "flex", justifyContent: "space-between", gap: 20, alignItems: "center", boxShadow: "0 14px 35px rgba(15,23,42,.22)" },
-  brand: { textTransform: "uppercase", letterSpacing: 2, fontSize: 12, opacity: .8, fontWeight: 700 },
-  title: { margin: "8px 0", fontSize: 42, lineHeight: 1 },
-  subtitle: { margin: 0, color: "#cbd5e1", maxWidth: 760, fontSize: 16 },
-  headerBadge: { background: "rgba(255,255,255,.12)", border: "1px solid rgba(255,255,255,.2)", padding: "10px 14px", borderRadius: 999, fontWeight: 700 },
-  tabs: { maxWidth: 1180, margin: "0 auto 22px", display: "flex", flexWrap: "wrap", gap: 10, background: "white", border: "1px solid #e5e7eb", padding: 8, borderRadius: 14, boxShadow: "0 8px 22px rgba(15,23,42,.05)" },
-  tab: { flex: "1 1 140px", border: 0, background: "transparent", borderRadius: 10, padding: "12px 14px", fontWeight: 800, color: "#374151", cursor: "pointer" },
-  tabActive: { background: "#2563eb", color: "white" },
+  page: { minHeight: "100vh", background: "var(--page-bg)", color: "var(--text)", fontFamily: "Inter, Arial, sans-serif", padding: "28px", transition: "background .2s ease, color .2s ease" },
+  header: { maxWidth: 1180, margin: "0 auto 24px", background: "linear-gradient(135deg,#0f172a,#1d4ed8,#2563eb)", color: "white", borderRadius: 24, padding: "30px 34px", display: "flex", justifyContent: "space-between", gap: 20, alignItems: "center", boxShadow: "0 22px 50px rgba(15,23,42,.28)" },
+  logoWrap: { display: "flex", gap: 18, alignItems: "center" },
+  logoMark: { width: 54, height: 54, borderRadius: 18, background: "rgba(255,255,255,.16)", border: "1px solid rgba(255,255,255,.22)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28, boxShadow: "inset 0 1px 0 rgba(255,255,255,.2)" },
+  brand: { textTransform: "uppercase", letterSpacing: 2, fontSize: 12, opacity: .82, fontWeight: 800 },
+  title: { margin: "6px 0", fontSize: 42, lineHeight: 1, color: "white", fontWeight: 900 },
+  subtitle: { margin: 0, color: "#dbeafe", maxWidth: 760, fontSize: 16, lineHeight: 1.45 },
+  headerActions: { display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" },
+  headerBadge: { background: "rgba(255,255,255,.12)", border: "1px solid rgba(255,255,255,.22)", padding: "10px 14px", borderRadius: 999, fontWeight: 800, whiteSpace: "nowrap" },
+  themeButton: { background: "rgba(255,255,255,.95)", color: "#0f172a", border: 0, borderRadius: 999, padding: "10px 14px", fontWeight: 800, cursor: "pointer", boxShadow: "0 8px 18px rgba(15,23,42,.18)" },
+
+  tabs: { maxWidth: 1180, margin: "0 auto 26px", display: "flex", flexWrap: "wrap", gap: 12, background: "transparent", padding: 0, borderRadius: 999 },
+  tab: { border: "1px solid var(--card-border)", background: "var(--tab-bg)", color: "var(--tab-text)", borderRadius: 999, padding: "14px 20px", fontWeight: 850, cursor: "pointer", display: "flex", alignItems: "center", gap: 9, boxShadow: "var(--shadow)", minHeight: 52, transition: "transform .15s ease, background .15s ease, border .15s ease, color .15s ease" },
+  tabActive: { background: "linear-gradient(135deg,#2563eb,#1d4ed8)", color: "white", border: "1px solid #2563eb", boxShadow: "0 14px 30px rgba(37,99,235,.35)", transform: "translateY(-1px)" },
+  tabIcon: { fontSize: 18, lineHeight: 1 },
+
   grid: { maxWidth: 1180, margin: "0 auto", display: "grid", gridTemplateColumns: "1.3fr .9fr", gap: 22 },
   leftColumn: { display: "flex", flexDirection: "column", gap: 20 },
   rightColumn: { display: "flex", flexDirection: "column", gap: 20 },
-  card: { background: "white", border: "1px solid #e5e7eb", borderRadius: 16, padding: 22, boxShadow: "0 8px 22px rgba(15,23,42,.06)" },
-  cardTitle: { margin: 0, fontSize: 22 },
-  cardDescription: { marginTop: 6, marginBottom: 18, color: "#6b7280", lineHeight: 1.45 },
+  card: { background: "var(--card-bg)", border: "1px solid var(--card-border)", borderRadius: 20, padding: 24, boxShadow: "var(--shadow)" },
+  cardTitle: { margin: 0, fontSize: 22, color: "var(--text)", fontWeight: 850 },
+  cardDescription: { marginTop: 6, marginBottom: 18, color: "var(--muted)", lineHeight: 1.45 },
   searchRow: { display: "flex", gap: 10 },
-  searchInput: { flex: 1, fontSize: 17, padding: "13px 14px", border: "1px solid #cbd5e1", borderRadius: 10 },
+  searchInput: { flex: 1, fontSize: 17, padding: "13px 14px", border: "1px solid var(--input-border)", borderRadius: 12, background: "var(--card-bg)", color: "var(--text)", outline: "none" },
   inputGroup: { marginTop: 20 },
-  input: { width: "100%", boxSizing: "border-box", fontSize: 15, padding: "11px 12px", border: "1px solid #cbd5e1", borderRadius: 10 },
-  label: { display: "block", fontWeight: 700, marginBottom: 8 },
+  input: { width: "100%", boxSizing: "border-box", fontSize: 15, padding: "11px 12px", border: "1px solid var(--input-border)", borderRadius: 12, background: "var(--card-bg)", color: "var(--text)", outline: "none" },
+  label: { display: "block", fontWeight: 800, marginBottom: 8, color: "var(--text)" },
   inlineRow: { display: "flex", gap: 8 },
   formGrid: { display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 14 },
-  primaryButton: { background: "#2563eb", color: "white", border: 0, borderRadius: 10, padding: "0 18px", fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" },
-  secondaryButton: { background: "#111827", color: "white", border: 0, borderRadius: 10, padding: "0 14px", fontWeight: 700, cursor: "pointer" },
+  primaryButton: { background: "linear-gradient(135deg,#2563eb,#1d4ed8)", color: "white", border: 0, borderRadius: 12, padding: "0 18px", fontWeight: 800, cursor: "pointer", whiteSpace: "nowrap", boxShadow: "0 10px 20px rgba(37,99,235,.25)" },
+  secondaryButton: { background: "#111827", color: "white", border: 0, borderRadius: 12, padding: "0 14px", fontWeight: 800, cursor: "pointer" },
   providerGrid: { display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 10 },
-  providerButton: { textAlign: "left", background: "#f9fafb", border: "1px solid #e5e7eb", borderRadius: 12, padding: 13, cursor: "pointer", display: "flex", flexDirection: "column", gap: 4 },
-  providerActive: { background: "#eff6ff", border: "1px solid #2563eb", boxShadow: "inset 0 0 0 1px #2563eb" },
+  providerButton: { textAlign: "left", background: "var(--soft-bg)", color: "var(--text)", border: "1px solid var(--card-border)", borderRadius: 14, padding: 13, cursor: "pointer", display: "flex", flexDirection: "column", gap: 4 },
+  providerActive: { background: "var(--tab-hover)", border: "1px solid #2563eb", boxShadow: "inset 0 0 0 1px #2563eb" },
   recordList: { marginTop: 14 },
-  inlineCheck: { display: "flex", gap: 8, alignItems: "center", marginTop: 12, fontWeight: 700 },
-  smallCode: { background: "#f3f4f6", border: "1px solid #e5e7eb", padding: 12, borderRadius: 10, fontFamily: "Consolas, monospace", wordBreak: "break-all", marginTop: 8 },
-  largeCode: { background: "#0f172a", color: "#e2e8f0", padding: 16, borderRadius: 12, fontFamily: "Consolas, monospace", whiteSpace: "pre-wrap", wordBreak: "break-all", lineHeight: 1.5 },
-  dnsBox: { background: "#f9fafb", border: "1px solid #e5e7eb", borderRadius: 12, padding: 12, display: "grid", gap: 6, marginBottom: 12, fontSize: 14 },
-  copyButton: { width: "100%", background: "#16a34a", color: "white", border: 0, borderRadius: 10, padding: 12, fontWeight: 800, cursor: "pointer" },
+  inlineCheck: { display: "flex", gap: 8, alignItems: "center", marginTop: 12, fontWeight: 800, color: "var(--text)" },
+  smallCode: { background: "var(--soft-bg)", border: "1px solid var(--card-border)", color: "var(--text)", padding: 12, borderRadius: 12, fontFamily: "Consolas, monospace", wordBreak: "break-all", marginTop: 8 },
+  largeCode: { background: "var(--code-bg)", color: "var(--code-text)", padding: 16, borderRadius: 14, fontFamily: "Consolas, monospace", whiteSpace: "pre-wrap", wordBreak: "break-all", lineHeight: 1.5 },
+  dnsBox: { background: "var(--soft-bg)", border: "1px solid var(--card-border)", color: "var(--text)", borderRadius: 14, padding: 12, display: "grid", gap: 6, marginBottom: 12, fontSize: 14 },
+  copyButton: { width: "100%", background: "linear-gradient(135deg,#16a34a,#15803d)", color: "white", border: 0, borderRadius: 12, padding: 12, fontWeight: 900, cursor: "pointer", boxShadow: "0 10px 20px rgba(22,163,74,.2)" },
   metrics: { display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8, marginBottom: 14 },
-  metric: { background: "#f9fafb", border: "1px solid #e5e7eb", borderRadius: 12, padding: 10, display: "flex", flexDirection: "column", gap: 4 },
-  metricDanger: { background: "#fff7ed", borderColor: "#fb923c" },
-  warning: { background: "#fff7ed", border: "1px solid #fb923c", color: "#9a3412", padding: 10, borderRadius: 10, marginTop: 8, lineHeight: 1.35 },
-  good: { background: "#ecfdf5", border: "1px solid #86efac", color: "#166534", padding: 10, borderRadius: 10, marginTop: 8 },
-  notice: { background: "#eff6ff", color: "#1e40af", border: "1px solid #bfdbfe", padding: 10, borderRadius: 10, marginTop: 8, lineHeight: 1.35 },
-  status: { marginTop: 12, borderRadius: 10, padding: 12, fontWeight: 700 },
+  metric: { background: "var(--soft-bg)", border: "1px solid var(--card-border)", borderRadius: 14, padding: 10, display: "flex", flexDirection: "column", gap: 4, color: "var(--text)" },
+  metricDanger: { background: "#fff7ed", borderColor: "#fb923c", color: "#9a3412" },
+  warning: { background: "#fff7ed", border: "1px solid #fb923c", color: "#9a3412", padding: 10, borderRadius: 12, marginTop: 8, lineHeight: 1.35 },
+  good: { background: "#ecfdf5", border: "1px solid #86efac", color: "#166534", padding: 10, borderRadius: 12, marginTop: 8 },
+  notice: { background: "#eff6ff", color: "#1e40af", border: "1px solid #bfdbfe", padding: 10, borderRadius: 12, marginTop: 8, lineHeight: 1.35 },
+  status: { marginTop: 12, borderRadius: 12, padding: 12, fontWeight: 800 },
   success: { background: "#ecfdf5", color: "#166534", border: "1px solid #86efac" },
   error: { background: "#fef2f2", color: "#991b1b", border: "1px solid #fecaca" },
   tags: { display: "flex", flexWrap: "wrap", gap: 8, marginTop: 10 },
   tag: { background: "#eef2ff", color: "#3730a3", padding: "7px 9px", borderRadius: 999, fontFamily: "Consolas, monospace", fontSize: 13 },
   tagButton: { marginLeft: 8, border: 0, background: "transparent", cursor: "pointer", color: "#3730a3", fontWeight: 900 },
   findingGrid: { display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 10 },
-  finding: { background: "#f9fafb", border: "1px solid #e5e7eb", borderRadius: 12, padding: 12, display: "flex", flexDirection: "column", gap: 6, wordBreak: "break-word" },
-  intelCard: { background: "#f9fafb", border: "1px solid #e5e7eb", borderRadius: 12, padding: 12, marginTop: 12 },
+  finding: { background: "var(--soft-bg)", border: "1px solid var(--card-border)", borderRadius: 14, padding: 12, display: "flex", flexDirection: "column", gap: 6, wordBreak: "break-word", color: "var(--text)" },
+  intelCard: { background: "var(--soft-bg)", border: "1px solid var(--card-border)", borderRadius: 14, padding: 12, marginTop: 12, color: "var(--text)" },
   riskPill: { borderRadius: 999, padding: "4px 9px", fontSize: 12, fontWeight: 800 },
   riskLow: { background: "#dcfce7", color: "#166534" },
   riskReview: { background: "#fef3c7", color: "#92400e" },
   riskHigh: { background: "#fee2e2", color: "#991b1b" },
-  scoreCircle: { width: 120, height: 120, borderRadius: "50%", background: "#2563eb", color: "white", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 42, fontWeight: 900, margin: "0 auto 18px" },
-  tableWrap: { overflowX: "auto", border: "1px solid #e5e7eb", borderRadius: 12 },
-  table: { width: "100%", borderCollapse: "collapse", fontSize: 14 },
-  th: { textAlign: "left", background: "#f9fafb", color: "#374151", padding: 12, borderBottom: "1px solid #e5e7eb" },
-  td: { padding: 12, borderBottom: "1px solid #e5e7eb", verticalAlign: "top" },
+  scoreCircle: { width: 120, height: 120, borderRadius: "50%", background: "linear-gradient(135deg,#2563eb,#1d4ed8)", color: "white", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 42, fontWeight: 900, margin: "0 auto 18px" },
+  tableWrap: { overflowX: "auto", border: "1px solid var(--card-border)", borderRadius: 14 },
+  table: { width: "100%", borderCollapse: "collapse", fontSize: 14, color: "var(--text)" },
+  th: { textAlign: "left", background: "var(--soft-bg)", color: "var(--text)", padding: 12, borderBottom: "1px solid var(--card-border)" },
+  td: { padding: 12, borderBottom: "1px solid var(--card-border)", verticalAlign: "top", color: "var(--text)" },
 };
