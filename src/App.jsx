@@ -92,20 +92,22 @@ export default function App() {
         <div>
           <div style={styles.brand}>MailAuth Tools</div>
           <h1 style={styles.title}>Email DNS Toolkit</h1>
-          <p style={styles.subtitle}>Build, inspect, and publish SPF, DMARC, and DKIM records from one clean admin console.</p>
+          <p style={styles.subtitle}>Build, inspect, analyze, and publish SPF, DMARC, DKIM, and email header authentication data from one clean admin console.</p>
         </div>
-        <div style={styles.headerBadge}>SPF · DMARC · DKIM</div>
+        <div style={styles.headerBadge}>SPF · DMARC · DKIM · Analyze</div>
       </header>
 
       <nav style={styles.tabs}>
         <button style={{ ...styles.tab, ...(activeTool === "spf" ? styles.tabActive : {}) }} onClick={() => setActiveTool("spf")}>SPF Lookup + Merge</button>
         <button style={{ ...styles.tab, ...(activeTool === "dmarc" ? styles.tabActive : {}) }} onClick={() => setActiveTool("dmarc")}>DMARC Builder</button>
         <button style={{ ...styles.tab, ...(activeTool === "dkim" ? styles.tabActive : {}) }} onClick={() => setActiveTool("dkim")}>DKIM Helper</button>
+        <button style={{ ...styles.tab, ...(activeTool === "analyzer" ? styles.tabActive : {}) }} onClick={() => setActiveTool("analyzer")}>Message Analyzer</button>
       </nav>
 
       {activeTool === "spf" && <SPFTool />}
       {activeTool === "dmarc" && <DMARCTool />}
       {activeTool === "dkim" && <DKIMTool />}
+      {activeTool === "analyzer" && <MessageAnalyzerTool />}
     </div>
   );
 }
@@ -582,6 +584,174 @@ function DKIMTool() {
   );
 }
 
+function MessageAnalyzerTool() {
+  const sampleHeaders = [
+    "Authentication-Results: mx.example.com; spf=pass smtp.mailfrom=sender.com; dkim=pass header.d=sender.com; dmarc=pass header.from=sender.com",
+    "From: Sender <sender@sender.com>",
+    "Return-Path: <bounce@sender.com>",
+    "Reply-To: Sender <sender@sender.com>",
+    "Received: from mail.sender.com (mail.sender.com. [203.0.113.25]) by mx.example.com with ESMTPS id abc123",
+    "Subject: Example message"
+  ].join(String.fromCharCode(10));
+
+  const [headers, setHeaders] = useState(sampleHeaders);
+  const [copied, setCopied] = useState(false);
+  const analysis = useMemo(() => analyzeMessageHeaders(headers), [headers]);
+
+  async function copySummary() {
+    const summary = [
+      `SPF: ${analysis.auth.spf || "not found"}`,
+      `DKIM: ${analysis.auth.dkim || "not found"}`,
+      `DMARC: ${analysis.auth.dmarc || "not found"}`,
+      `From: ${analysis.from || "not found"}`,
+      `Return-Path: ${analysis.returnPath || "not found"}`,
+      `Reply-To: ${analysis.replyTo || "not found"}`,
+      `Source IPs: ${analysis.ips.join(", ") || "none found"}`,
+      `Warnings: ${analysis.warnings.join(" | ") || "none"}`,
+    ].join(String.fromCharCode(10));
+    await navigator.clipboard.writeText(summary);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1400);
+  }
+
+  return (
+    <main style={styles.grid}>
+      <section style={styles.leftColumn}>
+        <Card title="Message Header Analyzer" description="Paste raw email headers to inspect SPF, DKIM, DMARC, relay hops, sending IPs, and alignment clues.">
+          <textarea
+            style={{ ...styles.input, minHeight: 360, fontFamily: "Consolas, monospace", lineHeight: 1.45 }}
+            value={headers}
+            onChange={e => setHeaders(e.target.value)}
+            placeholder="Paste full message headers here..."
+          />
+          <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
+            <button style={{ ...styles.secondaryButton, padding: "12px 16px" }} onClick={() => setHeaders("")}>Clear</button>
+            <button style={{ ...styles.primaryButton, padding: "12px 16px" }} onClick={() => setHeaders(sampleHeaders)}>Load Sample</button>
+          </div>
+        </Card>
+
+        <Card title="Detected Header Fields" description="Key values pulled from the pasted message headers.">
+          <div style={styles.findingGrid}>
+            <Finding label="From" value={analysis.from || "Not found"} />
+            <Finding label="Return-Path" value={analysis.returnPath || "Not found"} />
+            <Finding label="Reply-To" value={analysis.replyTo || "Not found"} />
+            <Finding label="Subject" value={analysis.subject || "Not found"} />
+            <Finding label="Message-ID" value={analysis.messageId || "Not found"} />
+            <Finding label="Received Hops" value={analysis.receivedCount} />
+          </div>
+        </Card>
+      </section>
+
+      <aside style={styles.rightColumn}>
+        <Card title="Authentication Results" description="Pass/fail indicators found in Authentication-Results or ARC headers.">
+          <div style={styles.metrics}>
+            <AuthMetric label="SPF" value={analysis.auth.spf} />
+            <AuthMetric label="DKIM" value={analysis.auth.dkim} />
+            <AuthMetric label="DMARC" value={analysis.auth.dmarc} />
+          </div>
+          {analysis.authDetails && <div style={styles.smallCode}>{analysis.authDetails}</div>}
+        </Card>
+
+        <Card title="Risk Signals" description="Common warning signs from the message metadata.">
+          {analysis.warnings.length ? analysis.warnings.map(w => <div key={w} style={styles.warning}>⚠ {w}</div>) : <div style={styles.good}>✓ No obvious header risks detected.</div>}
+        </Card>
+
+        <Card title="Source IPs and Relay Path" description="IPs and Received headers extracted from the message.">
+          <div style={styles.tags}>{analysis.ips.length ? analysis.ips.map(ip => <span key={ip} style={styles.tag}>{ip}</span>) : <span style={styles.tag}>No IPs found</span>}</div>
+          <div style={{ marginTop: 14 }}>
+            {analysis.receivedHeaders.slice(0, 6).map((line, index) => <div key={`${line}-${index}`} style={styles.smallCode}>{index + 1}. {line}</div>)}
+          </div>
+        </Card>
+
+        <Card title="Analysis Summary" description="Copy a compact summary for tickets or incident notes.">
+          <button style={styles.copyButton} onClick={copySummary}>{copied ? "Copied!" : "Copy Analysis Summary"}</button>
+        </Card>
+      </aside>
+    </main>
+  );
+}
+
+function analyzeMessageHeaders(rawHeaders) {
+  const raw = String(rawHeaders || "");
+  const lines = raw.split(String.fromCharCode(10)).map(line => line.trim()).filter(Boolean);
+  const combined = lines.join(" ");
+  const lowerCombined = combined.toLowerCase();
+
+  function getHeader(name) {
+    const prefix = `${name.toLowerCase()}:`;
+    const line = lines.find(item => item.toLowerCase().startsWith(prefix));
+    return line ? line.slice(name.length + 1).trim() : "";
+  }
+
+  function getAuthResult(name) {
+    const token = `${name}=`;
+    const index = lowerCombined.indexOf(token);
+    if (index < 0) return "";
+    const after = lowerCombined.slice(index + token.length);
+    return after.split(";")[0].split(" ")[0].trim();
+  }
+
+  function findIps(text) {
+    return uniqueClean(text.replaceAll("[", " ").replaceAll("]", " ").replaceAll("(", " ").replaceAll(")", " ").split(" ").filter(part => {
+      const pieces = part.split(".");
+      return pieces.length === 4 && pieces.every(piece => piece !== "" && !Number.isNaN(Number(piece)) && Number(piece) >= 0 && Number(piece) <= 255);
+    }));
+  }
+
+  const authLines = lines.filter(line => {
+    const lower = line.toLowerCase();
+    return lower.startsWith("authentication-results:") || lower.startsWith("arc-authentication-results:");
+  });
+  const receivedHeaders = lines.filter(line => line.toLowerCase().startsWith("received:"));
+  const from = getHeader("From");
+  const returnPath = getHeader("Return-Path").replaceAll("<", "").replaceAll(">", "");
+  const replyTo = getHeader("Reply-To");
+  const subject = getHeader("Subject");
+  const messageId = getHeader("Message-ID");
+  const auth = { spf: getAuthResult("spf"), dkim: getAuthResult("dkim"), dmarc: getAuthResult("dmarc") };
+  const ips = findIps(combined);
+  const warnings = [];
+
+  if (!auth.spf) warnings.push("SPF result was not found in the headers.");
+  if (!auth.dkim) warnings.push("DKIM result was not found in the headers.");
+  if (!auth.dmarc) warnings.push("DMARC result was not found in the headers.");
+  if ([auth.spf, auth.dkim, auth.dmarc].some(value => ["fail", "softfail", "temperror", "permerror"].includes(value))) warnings.push("One or more authentication checks failed or returned an error.");
+  if (replyTo && from && !sameDomain(replyTo, from)) warnings.push("Reply-To domain appears different from the From domain.");
+  if (returnPath && from && !sameDomain(returnPath, from)) warnings.push("Return-Path domain appears different from the From domain. This may be normal for third-party senders, but verify alignment.");
+  if (!receivedHeaders.length) warnings.push("No Received headers found. The pasted content may be incomplete.");
+  if (ips.length > 8) warnings.push("Many IP addresses detected. Review the relay chain carefully.");
+
+  return { from, returnPath, replyTo, subject, messageId, auth, authDetails: authLines.join(" "), receivedHeaders, receivedCount: receivedHeaders.length, ips, warnings };
+}
+
+function extractDomain(value) {
+  const atIndex = String(value || "").lastIndexOf("@");
+  if (atIndex < 0) return "";
+  return String(value).slice(atIndex + 1).toLowerCase().replaceAll(">", "").replaceAll(")", "").trim();
+}
+
+function sameDomain(a, b) {
+  const domainA = extractDomain(a);
+  const domainB = extractDomain(b);
+  if (!domainA || !domainB) return true;
+  return domainA === domainB || domainA.endsWith(`.${domainB}`) || domainB.endsWith(`.${domainA}`);
+}
+
+function Finding({ label, value }) {
+  return (
+    <div style={styles.finding}>
+      <span>{label}</span>
+      <strong>{String(value)}</strong>
+    </div>
+  );
+}
+
+function AuthMetric({ label, value }) {
+  const result = value || "missing";
+  const bad = ["fail", "softfail", "temperror", "permerror", "missing"].includes(result);
+  return <Metric label={label} value={result.toUpperCase()} danger={bad} />;
+}
+
 function Card({ title, description, children }) {
   return (
     <div style={styles.card}>
@@ -681,4 +851,6 @@ const styles = {
   tags: { display: "flex", flexWrap: "wrap", gap: 8, marginTop: 10 },
   tag: { background: "#eef2ff", color: "#3730a3", padding: "7px 9px", borderRadius: 999, fontFamily: "Consolas, monospace", fontSize: 13 },
   tagButton: { marginLeft: 8, border: 0, background: "transparent", cursor: "pointer", color: "#3730a3", fontWeight: 900 },
+  findingGrid: { display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 10 },
+  finding: { background: "#f9fafb", border: "1px solid #e5e7eb", borderRadius: 12, padding: 12, display: "flex", flexDirection: "column", gap: 6, wordBreak: "break-word" },
 };
