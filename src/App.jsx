@@ -15,86 +15,103 @@ function uniqueClean(values) {
   return [...new Set(values.map(v => String(v).trim()).filter(Boolean))];
 }
 
-function buildSPFRecord({ mx, ipv4s, includes, allPolicy }) {
-  const parts = ["v=spf1"];
-  if (mx) parts.push("mx");
-  uniqueClean(ipv4s).forEach(ip => parts.push(`ip4:${ip}`));
-  uniqueClean(includes).forEach(inc => parts.push(`include:${inc}`));
-  parts.push(allPolicy || "~all");
-  return parts.join(" ");
+function parseSPF(spf) {
+  const parts = spf.split(" ");
+  return {
+    includes: parts.filter(p => p.startsWith("include:")).map(p => p.replace("include:", "")),
+    ip4: parts.filter(p => p.startsWith("ip4:")).map(p => p.replace("ip4:", "")),
+    policy: parts.find(p => p.includes("all")) || "~all"
+  };
 }
 
-export default function SPFRecordBuilder() {
+function buildSPF({ includes, ip4, policy }) {
+  return [
+    "v=spf1",
+    "mx",
+    ...uniqueClean(ip4).map(ip => `ip4:${ip}`),
+    ...uniqueClean(includes).map(i => `include:${i}`),
+    policy
+  ].join(" ");
+}
+
+export default function App() {
   const [domain, setDomain] = useState("example.com");
-  const [selectedProviders, setSelectedProviders] = useState(["Microsoft 365"]);
-  const [ipv4s, setIpv4s] = useState([]);
-  const [input, setInput] = useState("");
-  const [allPolicy, setAllPolicy] = useState("~all");
+  const [existing, setExisting] = useState("");
+  const [includes, setIncludes] = useState([]);
+  const [ip4, setIp4] = useState([]);
+  const [ipInput, setIpInput] = useState("");
+  const [policy, setPolicy] = useState("~all");
 
-  const includes = useMemo(() => {
-    return PROVIDERS.filter(p => selectedProviders.includes(p.name)).map(p => p.include);
-  }, [selectedProviders]);
+  async function lookup() {
+    try {
+      const res = await fetch(`https://dns.google/resolve?name=${domain}&type=TXT`);
+      const data = await res.json();
 
-  const record = useMemo(() => {
-    return buildSPFRecord({ mx: true, ipv4s, includes, allPolicy });
-  }, [ipv4s, includes, allPolicy]);
+      const spf = data.Answer?.map(a => a.data)
+        .find(txt => txt.includes("v=spf1"));
 
-  function toggleProvider(name) {
-    setSelectedProviders(prev =>
-      prev.includes(name) ? prev.filter(p => p !== name) : [...prev, name]
-    );
+      if (!spf) {
+        alert("No SPF found");
+        return;
+      }
+
+      const clean = spf.replace(/"/g, "");
+      setExisting(clean);
+
+      const parsed = parseSPF(clean);
+      setIncludes(parsed.includes);
+      setIp4(parsed.ip4);
+      setPolicy(parsed.policy);
+    } catch {
+      alert("Lookup failed");
+    }
   }
 
   function addIP() {
-    if (!input) return;
-    setIpv4s(prev => uniqueClean([...prev, input]));
-    setInput("");
+    if (!ipInput) return;
+    setIp4(prev => [...prev, ipInput]);
+    setIpInput("");
   }
 
+  const mergedIncludes = useMemo(() => {
+    return uniqueClean([
+      ...includes,
+      ...PROVIDERS.filter(p => p.selected).map(p => p.include)
+    ]);
+  }, [includes]);
+
+  const record = buildSPF({
+    includes: mergedIncludes,
+    ip4,
+    policy
+  });
+
   return (
-    <div style={{ padding: 20, fontFamily: "Arial" }}>
-      <h1>SPF Record Builder</h1>
+    <div style={{ maxWidth: 700, margin: "auto", padding: 20 }}>
+      <h1>SPF Lookup + Merge</h1>
 
-      <div>
-        <h3>Domain</h3>
-        <input value={domain} onChange={e => setDomain(e.target.value)} />
-      </div>
+      <input value={domain} onChange={e => setDomain(e.target.value)} />
+      <button onClick={lookup}>Lookup SPF</button>
 
-      <div>
-        <h3>Providers</h3>
-        {PROVIDERS.map(p => (
-          <div key={p.name}>
-            <label>
-              <input
-                type="checkbox"
-                checked={selectedProviders.includes(p.name)}
-                onChange={() => toggleProvider(p.name)}
-              />
-              {p.name}
-            </label>
-          </div>
-        ))}
-      </div>
+      {existing && (
+        <>
+          <h3>Existing SPF</h3>
+          <pre>{existing}</pre>
+        </>
+      )}
 
-      <div>
-        <h3>Add IP</h3>
-        <input value={input} onChange={e => setInput(e.target.value)} />
-        <button onClick={addIP}>Add</button>
-      </div>
+      <h3>Add IP</h3>
+      <input value={ipInput} onChange={e => setIpInput(e.target.value)} />
+      <button onClick={addIP}>Add</button>
 
-      <div>
-        <h3>Policy</h3>
-        <select value={allPolicy} onChange={e => setAllPolicy(e.target.value)}>
-          <option value="~all">Soft fail (~all)</option>
-          <option value="-all">Hard fail (-all)</option>
-        </select>
-      </div>
+      <h3>Policy</h3>
+      <select value={policy} onChange={e => setPolicy(e.target.value)}>
+        <option value="~all">~all</option>
+        <option value="-all">-all</option>
+      </select>
 
-      <div style={{ marginTop: 20 }}>
-        <h3>SPF Record</h3>
-        <code>{record}</code>
-      </div>
+      <h3>Merged SPF</h3>
+      <pre>{record}</pre>
     </div>
   );
 }
-
