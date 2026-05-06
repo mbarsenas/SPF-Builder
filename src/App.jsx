@@ -1,5 +1,12 @@
 import React, { useEffect, useMemo, useState } from "react";
 
+const ENV = typeof import.meta !== "undefined" && import.meta.env
+  ? import.meta.env
+  : {};
+
+const STRIPE_REPORT_PAYMENT_LINK = ENV.VITE_STRIPE_REPORT_PAYMENT_LINK || "";
+const STRIPE_PRO_PAYMENT_LINK = ENV.VITE_STRIPE_PRO_PAYMENT_LINK || "";
+
 const PROVIDERS = [
   { name: "Microsoft 365", include: "spf.protection.outlook.com", category: "Productivity" },
   { name: "Google Workspace", include: "_spf.google.com", category: "Productivity" },
@@ -84,9 +91,28 @@ function parseDMARC(record) {
 }
 
 export default function App() {
-  const [activeTool, setActiveTool] = useState("mx");
+  const [activeTool, setActiveTool] = useState("landing");
   const [theme, setTheme] = useState("light");
+  const [userEmail, setUserEmail] = useState(() => localStorage.getItem("user_email") || "");
   const themeVars = theme === "dark" ? darkThemeVars : lightThemeVars;
+  const isApp = activeTool !== "landing";
+
+  function signInDemo() {
+    const email = prompt("Enter your email to create a demo account:");
+    if (!email) return;
+    localStorage.setItem("user_email", email);
+    setUserEmail(email);
+  }
+
+  function signOutDemo() {
+    localStorage.removeItem("user_email");
+    setUserEmail("");
+  }
+
+  function startFreeAudit() {
+    setActiveTool("audit");
+    setTimeout(() => window.scrollTo({ top: 0, behavior: "smooth" }), 50);
+  }
 
   return (
     <div style={{ ...styles.page, ...themeVars }}>
@@ -95,50 +121,134 @@ export default function App() {
           <div style={styles.logoMark}>✉</div>
           <div>
             <div style={styles.brand}>MailAuth Tools</div>
-            <h1 style={styles.title}>Email DNS Toolkit</h1>
-            <p style={styles.subtitle}>Build, inspect, analyze, and publish SPF, DMARC, DKIM, MX, and email header authentication data from one clean admin console.</p>
+            <h1 style={styles.title}>{isApp ? "Email DNS Toolkit" : "Fix email DNS before it hurts deliverability"}</h1>
+            <p style={styles.subtitle}>{isApp ? "Build, inspect, analyze, and publish SPF, DMARC, DKIM, MX, and email header authentication data from one clean admin console." : "Run a free email authentication check, preview the risks, then unlock a client-ready audit report with specific SPF, DMARC, DKIM, and MX fixes."}</p>
           </div>
         </div>
         <div style={styles.headerActions}>
           <button style={styles.themeButton} onClick={() => setTheme(theme === "light" ? "dark" : "light")}>{theme === "light" ? "🌙 Dark" : "☀️ Light"}</button>
-          <div style={styles.headerBadge}>MX · SPF · DMARC · DKIM · Analyze · Health</div>
+          {userEmail ? <button style={styles.themeButton} onClick={signOutDemo}>Signed in: {userEmail}</button> : <button style={styles.themeButton} onClick={signInDemo}>Sign in</button>}
+          <div style={styles.headerBadge}>$5 Reports · $10/mo Pro</div>
         </div>
       </header>
 
-      <nav style={styles.tabs}>
-        {[
-          ["mx", "📬", "MX Records"],
-          ["audit", "📑", "Audit Report"],
-          ["health", "🌐", "DNS Health"],
-          ["spf", "🛡", "SPF Lookup"],
-          ["dmarc", "📊", "DMARC Builder"],
-          ["dkim", "🔑", "DKIM Helper"],
-          ["blacklist", "🚫", "Blacklist"],
-          ["score", "⭐", "Domain Score"],
-          ["reports", "📄", "DMARC Reports"],
-          ["smtp", "🔐", "SMTP/TLS"],
-          ["propagation", "📡", "Propagation"],
-          ["analyzer", "🔎", "Message Analyzer"],
-        ].map(([id, icon, label]) => (
-          <button key={id} style={{ ...styles.tab, ...(activeTool === id ? styles.tabActive : {}) }} onClick={() => setActiveTool(id)}>
-            <span style={styles.tabIcon}>{icon}</span>
-            <span>{label}</span>
-          </button>
-        ))}
-      </nav>
+      {activeTool === "landing" ? (
+        <LandingPage startFreeAudit={startFreeAudit} setActiveTool={setActiveTool} signInDemo={signInDemo} />
+      ) : (
+        <>
+          <nav style={styles.tabs}>
+            {[
+              ["landing", "🏠", "Home"],
+              ["mx", "📬", "MX Records"],
+              ["audit", "📑", "Audit Report"],
+              ["health", "🌐", "DNS Health"],
+              ["spf", "🛡", "SPF Lookup"],
+              ["dmarc", "📊", "DMARC Builder"],
+              ["dkim", "🔑", "DKIM Helper"],
+              ["blacklist", "🚫", "Blacklist"],
+              ["score", "⭐", "Domain Score"],
+              ["reports", "📄", "DMARC Reports"],
+              ["smtp", "🔐", "SMTP/TLS"],
+              ["propagation", "📡", "Propagation"],
+              ["analyzer", "🔎", "Message Analyzer"],
+            ].map(([id, icon, label]) => (
+              <button key={id} style={{ ...styles.tab, ...(activeTool === id ? styles.tabActive : {}) }} onClick={() => setActiveTool(id)}>
+                <span style={styles.tabIcon}>{icon}</span>
+                <span>{label}</span>
+              </button>
+            ))}
+          </nav>
 
-      {activeTool === "mx" && <MXTool />}
-      {activeTool === "audit" && <AuditReportTool />}
-      {activeTool === "health" && <DNSHealthTool />}
-      {activeTool === "spf" && <SPFTool />}
-      {activeTool === "dmarc" && <DMARCTool />}
-      {activeTool === "dkim" && <DKIMTool />}
-      {activeTool === "blacklist" && <BlacklistTool />}
-      {activeTool === "score" && <DomainScoreTool />}
-      {activeTool === "reports" && <DMARCReportAnalyzer />}
-      {activeTool === "smtp" && <SMTPTLSTool />}
-      {activeTool === "propagation" && <DNSPropagationTool />}
-      {activeTool === "analyzer" && <MessageAnalyzerTool />}
+          {activeTool === "mx" && <MXTool />}
+          {activeTool === "audit" && <AuditReportTool />}
+          {activeTool === "health" && <DNSHealthTool />}
+          {activeTool === "spf" && <SPFTool />}
+          {activeTool === "dmarc" && <DMARCTool />}
+          {activeTool === "dkim" && <DKIMTool />}
+          {activeTool === "blacklist" && <BlacklistTool />}
+          {activeTool === "score" && <DomainScoreTool />}
+          {activeTool === "reports" && <DMARCReportAnalyzer />}
+          {activeTool === "smtp" && <SMTPTLSTool />}
+          {activeTool === "propagation" && <DNSPropagationTool />}
+          {activeTool === "analyzer" && <MessageAnalyzerTool />}
+        </>
+      )}
+    </div>
+  );
+}
+
+function LandingPage({ startFreeAudit, setActiveTool, signInDemo }) {
+  const [domain, setDomain] = useState("example.com");
+
+  function runAuditFromHero() {
+    localStorage.setItem("landing_domain", domain);
+    startFreeAudit();
+  }
+
+  return (
+    <main style={styles.landingWrap}>
+      <section style={styles.heroGrid}>
+        <div style={styles.heroCard}>
+          <div style={styles.heroBadge}>Email Authentication Audit Platform</div>
+          <h2 style={styles.heroTitle}>Find SPF, DMARC, DKIM, and MX issues in seconds.</h2>
+          <p style={styles.heroText}>Give admins and MSPs a decision-ready report: score, findings, DNS evidence, risk level, and copy-paste fixes.</p>
+          <div style={styles.heroSearch}>
+            <input style={styles.searchInput} value={domain} onChange={e => setDomain(e.target.value)} placeholder="yourdomain.com" />
+            <button style={{ ...styles.primaryButton, padding: "14px 20px" }} onClick={runAuditFromHero}>Run Free Audit</button>
+          </div>
+          <div style={styles.heroTrust}>No signup required for preview · Paid PDF report · Built for M365, MSP, and security teams</div>
+        </div>
+        <div style={styles.previewCard}>
+          <div style={styles.previewTop}>Sample Audit Preview</div>
+          <div style={styles.auditHero}>
+            <div style={{ ...styles.scoreCircle, margin: 0 }}>78</div>
+            <div>
+              <h3 style={{ margin: 0, color: "var(--text)" }}>Needs Review</h3>
+              <p style={{ margin: "6px 0 0", color: "var(--muted)" }}>contoso.com</p>
+            </div>
+          </div>
+          <div style={styles.warning}>⚠ DMARC is monitoring only</div>
+          <div style={styles.warning}>⚠ Single MX record detected</div>
+          <div style={styles.paywallBlur}>🔒 Unlock full findings, PDF export, email delivery, and remediation steps</div>
+        </div>
+      </section>
+
+      <section style={styles.valueGrid}>
+        <MiniFeature icon="📬" title="DNS Evidence" text="MX, SPF, DMARC, DKIM, A, AAAA, and NS records in one view." />
+        <MiniFeature icon="🛡" title="Risk Findings" text="Flags spoofing risk, SPF errors, weak DMARC, and missing records." />
+        <MiniFeature icon="📄" title="Paid Reports" text="Sell polished audit exports for clients, tickets, and compliance reviews." />
+      </section>
+
+      <section style={styles.pricingGrid}>
+        <PricingCard title="Single Audit" price="$5" text="Best for one domain or one client issue." bullets={["Full PDF report", "Email delivery", "Fix recommendations", "Raw DNS evidence"]} button="Unlock Report" onClick={() => setActiveTool("audit")} />
+        <PricingCard featured title="$10/mo Pro Plan" price="$10/mo" text="Best for admins, consultants, and MSPs." bullets={["Unlimited audits", "Saved report history", "PDF exports", "Future monitoring alerts"]} button="Start Pro" onClick={() => {
+          if (STRIPE_PRO_PAYMENT_LINK) window.location.href = STRIPE_PRO_PAYMENT_LINK;
+          else signInDemo();
+        }} />
+      </section>
+
+      <section style={styles.landingCta}>
+        <h2 style={{ margin: 0 }}>Goal: $1k/month</h2>
+        <p style={{ color: "var(--muted)" }}>100 Pro subscribers, 200 one-time reports, or a mix of both. This funnel is built to support both paths.</p>
+        <button style={{ ...styles.copyButton, maxWidth: 260 }} onClick={runAuditFromHero}>Run First Audit</button>
+      </section>
+    </main>
+  );
+}
+
+function MiniFeature({ icon, title, text }) {
+  return <div style={styles.miniFeature}><div style={styles.miniIcon}>{icon}</div><strong>{title}</strong><span>{text}</span></div>;
+}
+
+function PricingCard({ title, price, text, bullets, button, onClick, featured }) {
+  return (
+    <div style={{ ...styles.pricingCard, ...(featured ? styles.pricingFeatured : {}) }}>
+      <div style={styles.heroBadge}>{featured ? "Best value" : "One-time"}</div>
+      <h3 style={{ margin: "12px 0 4px", fontSize: 24 }}>{title}</h3>
+      <div style={{ fontSize: 42, fontWeight: 950 }}>{price}</div>
+      <p style={{ color: "var(--muted)" }}>{text}</p>
+      {bullets.map(bullet => <div key={bullet} style={styles.good}>✓ {bullet}</div>)}
+      <button style={{ ...styles.copyButton, marginTop: 16 }} onClick={onClick}>{button}</button>
     </div>
   );
 }
@@ -148,30 +258,41 @@ function AuditReportTool() {
   const [loading, setLoading] = useState(false);
   const [report, setReport] = useState(null);
   const [copied, setCopied] = useState(false);
-  const [isPro, setIsPro] = useState(() => localStorage.getItem("audit_report_unlocked") === "true");
+  const [emailTo, setEmailTo] = useState("");
+  const [paidSessionId, setPaidSessionId] = useState(() => localStorage.getItem("paid_audit_session_id") || "");
+  const [isPro, setIsPro] = useState(() => localStorage.getItem("audit_report_unlocked") === "true" && !!localStorage.getItem("paid_audit_session_id"));
+  const [deliveryStatus, setDeliveryStatus] = useState("");
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("audit_paid") === "true") {
-      localStorage.setItem("audit_report_unlocked", "true");
-      setIsPro(true);
-      window.history.replaceState({}, "", window.location.pathname);
+    async function verifyPaymentReturn() {
+      const params = new URLSearchParams(window.location.search);
+      const sessionId = params.get("session_id");
+      if (!sessionId) return;
+
+      try {
+        const response = await fetch(`/api/verify-checkout-session?session_id=${encodeURIComponent(sessionId)}`);
+        const data = await response.json();
+        if (!response.ok || !data.paid) throw new Error(data.error || "Payment verification failed");
+
+        localStorage.setItem("audit_report_unlocked", "true");
+        localStorage.setItem("paid_audit_session_id", sessionId);
+        setPaidSessionId(sessionId);
+        setIsPro(true);
+        window.history.replaceState({}, "", window.location.pathname);
+      } catch (error) {
+        alert(`Payment verification failed: ${error.message}`);
+      }
     }
+
+    verifyPaymentReturn();
   }, []);
 
-  async function handleCheckout() {
-    try {
-      const response = await fetch("/api/create-checkout-session", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      });
-
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Checkout failed");
-      if (data.url) window.location.href = data.url;
-    } catch (error) {
-      alert(`Stripe checkout failed: ${error.message}`);
+  function handleCheckout() {
+    if (!STRIPE_REPORT_PAYMENT_LINK) {
+      alert("Missing Stripe Payment Link. Add VITE_STRIPE_REPORT_PAYMENT_LINK in Vercel Environment Variables.");
+      return;
     }
+    window.location.href = STRIPE_REPORT_PAYMENT_LINK;
   }
 
   async function generateAudit() {
@@ -231,7 +352,7 @@ function AuditReportTool() {
     }
   }
 
-  function exportAudit() {
+  function exportAuditJson() {
     if (!report || !isPro) return;
     const blob = new Blob([JSON.stringify(report, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -240,6 +361,49 @@ function AuditReportTool() {
     a.download = `${report.domain}-email-dns-audit.json`;
     a.click();
     URL.revokeObjectURL(url);
+  }
+
+  async function exportAuditPdf() {
+    if (!report || !isPro || !paidSessionId) return;
+    setDeliveryStatus("Generating PDF...");
+    try {
+      const response = await fetch("/api/export-audit-pdf", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: paidSessionId, report }),
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || "PDF export failed");
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${report.domain}-email-dns-audit.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setDeliveryStatus("PDF downloaded.");
+    } catch (error) {
+      setDeliveryStatus(`PDF export failed: ${error.message}`);
+    }
+  }
+
+  async function emailAuditReport() {
+    if (!report || !isPro || !paidSessionId || !emailTo.trim()) return;
+    setDeliveryStatus("Sending email...");
+    try {
+      const response = await fetch("/api/email-audit-report", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: paidSessionId, email_to: emailTo.trim(), report }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Email failed");
+      setDeliveryStatus("Report emailed successfully.");
+    } catch (error) {
+      setDeliveryStatus(`Email failed: ${error.message}`);
+    }
   }
 
   async function copyExecutiveSummary() {
@@ -307,11 +471,17 @@ function AuditReportTool() {
             <div style={{ color: "var(--muted)" }}>one-time report export</div>
           </div>
           {isPro ? (
-            <button style={styles.copyButton} onClick={exportAudit} disabled={!report}>⬇ Export Full Audit JSON</button>
+            <div style={{ display: "grid", gap: 10 }}>
+              <button style={styles.copyButton} onClick={exportAuditPdf} disabled={!report}>⬇ Download Premium PDF</button>
+              <button style={{ ...styles.secondaryButton, padding: 12 }} onClick={exportAuditJson} disabled={!report}>Download JSON</button>
+              <input style={styles.input} value={emailTo} onChange={e => setEmailTo(e.target.value)} placeholder="recipient@example.com" />
+              <button style={{ ...styles.primaryButton, padding: 12 }} onClick={emailAuditReport} disabled={!report || !emailTo.trim()}>Email PDF Report</button>
+            </div>
           ) : (
             <button style={{ ...styles.copyButton, background: "linear-gradient(135deg,#9333ea,#7e22ce)" }} onClick={handleCheckout}>💳 Unlock Full Report ($5)</button>
           )}
-          <div style={styles.notice}>Current unlock is a client-side demo gate. Next step is replacing it with Stripe Checkout.</div>
+          <div style={styles.notice}>{isPro ? "Payment verified by Stripe session. PDF and email delivery are enabled." : "Secure checkout verifies payment before enabling PDF export and email delivery."}</div>
+          {deliveryStatus && <div style={styles.smallCode}>{deliveryStatus}</div>}
         </Card>
 
         {report && (
@@ -1742,6 +1912,23 @@ const styles = {
   auditHero: { display: "flex", gap: 18, alignItems: "center", marginBottom: 18, padding: 16, background: "var(--soft-bg)", border: "1px solid var(--card-border)", borderRadius: 16 },
   priceBox: { background: "var(--soft-bg)", border: "1px solid var(--card-border)", borderRadius: 16, padding: 18, marginBottom: 14, textAlign: "center" },
   paywallBlur: { marginTop: 10, padding: 14, borderRadius: 14, border: "1px dashed #9333ea", color: "#9333ea", background: "rgba(147,51,234,.08)", fontWeight: 800 },
+  landingWrap: { maxWidth: 1180, margin: "0 auto", display: "grid", gap: 24 },
+  heroGrid: { display: "grid", gridTemplateColumns: "1.15fr .85fr", gap: 24, alignItems: "stretch" },
+  heroCard: { background: "var(--card-bg)", border: "1px solid var(--card-border)", borderRadius: 26, padding: 34, boxShadow: "var(--shadow)" },
+  previewCard: { background: "var(--card-bg)", border: "1px solid var(--card-border)", borderRadius: 26, padding: 26, boxShadow: "var(--shadow)" },
+  previewTop: { color: "var(--muted)", fontWeight: 900, marginBottom: 16, textTransform: "uppercase", letterSpacing: 1 },
+  heroBadge: { display: "inline-flex", background: "rgba(37,99,235,.12)", color: "#2563eb", border: "1px solid rgba(37,99,235,.25)", borderRadius: 999, padding: "7px 11px", fontWeight: 900, fontSize: 13 },
+  heroTitle: { fontSize: 52, lineHeight: 1, margin: "18px 0 14px", color: "var(--text)", fontWeight: 950 },
+  heroText: { fontSize: 18, color: "var(--muted)", lineHeight: 1.55, maxWidth: 740 },
+  heroSearch: { display: "flex", gap: 10, marginTop: 22 },
+  heroTrust: { marginTop: 14, color: "var(--muted)", fontSize: 14 },
+  valueGrid: { display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 16 },
+  miniFeature: { background: "var(--card-bg)", border: "1px solid var(--card-border)", borderRadius: 20, padding: 20, boxShadow: "var(--shadow)", display: "grid", gap: 8, color: "var(--text)" },
+  miniIcon: { width: 42, height: 42, borderRadius: 14, background: "var(--soft-bg)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22 },
+  pricingGrid: { display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 20 },
+  pricingCard: { background: "var(--card-bg)", border: "1px solid var(--card-border)", borderRadius: 24, padding: 26, boxShadow: "var(--shadow)", color: "var(--text)" },
+  pricingFeatured: { border: "1px solid #2563eb", boxShadow: "0 18px 40px rgba(37,99,235,.22)" },
+  landingCta: { background: "var(--card-bg)", border: "1px solid var(--card-border)", borderRadius: 24, padding: 28, boxShadow: "var(--shadow)", textAlign: "center" },
   tableWrap: { overflowX: "auto", border: "1px solid var(--card-border)", borderRadius: 14 },
   table: { width: "100%", borderCollapse: "collapse", fontSize: 14, color: "var(--text)" },
   th: { textAlign: "left", background: "var(--soft-bg)", color: "var(--text)", padding: 12, borderBottom: "1px solid var(--card-border)" },
